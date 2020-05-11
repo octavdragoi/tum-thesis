@@ -8,6 +8,7 @@
 \usepackage{mathtools}
 \usepackage{fullpage}
 \usepackage{wrapfig}
+\usepackage{hyperref}
 
 \newcommand{\norm}[1]{\left\lVert#1\right\rVert}
 
@@ -86,11 +87,11 @@ defined as:
 
 If $X$ is a Riemannian manifold, as it is in our case where $X=\mathbb{R}^d$,
 then $(\mathscr{P}_2(X), W_2)$ is also a Riemannian manifold. In 
-\cite{ambgigli2011}, the authors describe the topology of $(\mathscr{P}_2(X), W_2)$
+\cite{Ambrosio2013AUG}, the authors describe the topology of $(\mathscr{P}_2(X), W_2)$
 and the construction of a Riemannian-like framework by mostly looking at
 transport maps, not at transport plans.
 
-As defined in \cite{ambgigli2011}, the set $\mathscr{P}_2(X)$ contains all 
+As defined in \cite{Ambrosio2013AUG}, the set $\mathscr{P}_2(X)$ contains all 
 distributions, but for our use case we would like to restrict this to 
 probabilities with finite support, where each distribution is a sum of 
 discrete weighted Dirac indicator distributions. Something like:
@@ -181,7 +182,7 @@ Therefore, the tangent space is defined as:
 
 \subsection{Generalization to transport plans}
 
-\cite{ambgigli2011} also discuss an alternative definition to the tangent space.
+\cite{Ambrosio2013AUG} also discuss an alternative definition to the tangent space.
 Define: 
 \[\text{Geod}_\mu \coloneqq \{\text{geodesics starting from} \mu\}/\approx \]
 where $(\mu_t)\approx (\mu_t')$ if they coincide on a neighborhood around $\mu$.
@@ -224,15 +225,15 @@ the transportation polytope.
 The main problem with the aforementioned concepts of tangent spaces and exponential maps
 is that most of the computations
 are intractable for an infinite-dimensional space like $\mathscr{P}_2(X)$. In the paper
-\cite{seguycuturi2015}, the authors describe a series of approximations for 
+\cite{seguy2015principal}, the authors describe a series of approximations for 
 tangent vectors and interpolations in the $W_2$ space, together with algorithmic
 implementations for the case of $\mathscr{D}_2(X)$. The paper's goal is 
 to eventually arrive at a PCA-like analysis within Wasserstein spaces, but 
 we shall use it rather for its computational framework.
 
-For computations of Wasserstein barycenters, the authors of \cite{seguycuturi2015}
-use other implementations of other algorithms, such as \cite{benamou2015} or 
-\cite{cuturi2014}. Most of the geometric constructions that they devise then,
+For computations of Wasserstein barycenters, the authors of \cite{seguy2015principal}
+use other implementations of other algorithms, such as \cite{benamou2014iterative} or 
+\cite{cuturi2013fast}. Most of the geometric constructions that they devise then,
 are actually used to compute the so-called "principal geodesics" and conduct 
 some form of principal component analysis.
 
@@ -269,7 +270,7 @@ In our case, for $\sigma = \bar\mu$ and $v_1, v_2$ two vector fields such that
 $id-v_1, id+v_2$ are optimal mappings, the generalized geodesic can be written as:
 \[g_t(v_1, v_2)\coloneqq \left(id - v_1 + t(v_1+v_2)\right)\#\bar\mu,\ t\in[0,1]  \] 
 
-In Figure \ref{fig:generalized_geodesics} the authors of \cite{seguycuturi2015}
+In Figure \ref{fig:generalized_geodesics} the authors of \cite{seguy2015principal}
 illustrate how these generalized geodesics look like, for $t=\frac{1}{3}$ and 
 $t = \frac{2}{3}$. The linear behavior of this kind of interpolation makes it 
 cheaper to compute than the purely theoretical method.
@@ -281,7 +282,7 @@ cheaper to compute than the purely theoretical method.
 The Wasserstein mean $\bar\mu$ of the input measures $(\mu_i)$ is given,
 and we denote $\bar\mu = \sum_{k=1}^pb_k\delta_{y_k}$, where $\sum b_i=1$
 and $Y=[y_1,\dots, y_p]\in \mathbb{R}^(d\times p)$ is the matrix containing
-the support of $\bar\mu$. In \cite{seguycuturi2015}, they treat this $\bar\mu$
+the support of $\bar\mu$. In \cite{seguy2015principal}, they treat this $\bar\mu$
 as given, and they compute it using some other barycentric algorithm.
 
 For each of the $p$ points in $\bar\mu$, they consider \textit{two} velocity 
@@ -296,21 +297,115 @@ where the locations $Z_t$ are computed as:
 
 \subsection{Discussion}
 
+In summary, this problem takes a set of point clouds as input, and constructs 
+a geodesic emanating from their Frechet mean that minimizes the distance 
+to them. This geodesic encapsulates the set's "information", in a similar 
+manner to how a principal component does, in a vector space.
+
 At this point, only the specific setup of the algorithm to construct these
 geodesics has been summarized here. To me it seems that this algorithm has
 a good potential to be useful, if we are interested in computing these tangent 
 vectors $V_1, V_2$ and the principal geodesics. That's a big \textbf{if}!
 
-Let us convene and decide what parts of
-these computations would be useful for us, and how can we adapt them to our use
-case scenario.
+\section{Gradient Flows}
 
-\begin{thebibliography}{1}
-    \bibitem{ambgigli2011} Luigi Ambrosio and Nicola Gigli. {\em A User's Guide to Optimal Transport.} 2011.
-    \bibitem{seguycuturi2015} Vivien Seguy and Marco Cuturi. {\em Principal Geodesic Analysis for Probability Measures under the Optimal Transport Metric.} 2015.
-    \bibitem{benamou2015} Jean-David Benamou, Guillaume Carlier, Marco Cuturi, Luca Nenna, and Gabriel Peyré. {\em Iterative bregman projections for regularized transportation problems.} 2015
-    \bibitem{cuturi2014} Marco Cuturi and Arnaud Doucet. {\em Fast Computation of Wasserstein Barycenters.} 2014.
-    \bibitem{ambgigli2006} Luigi Ambrosio, Nicola Gigli, and Giuseppe Savaré. {\em Gradient flows: in metric spaces and in the space of probability measures.} 2006.
-\end{thebibliography}
+This problem is an \textit{initial value problem}: given an initial point 
+$\mu\in \mathscr{P}_2(M)$ and a smooth function $F:\mathscr{P}_2(M)\rightarrow
+\mathbb{R}$, we want to find a \textit{gradient flow} $(\mu_t)$ such that:
+\begin{equation*}
+\begin{cases}
+    \mu_t' = -\nabla F(\mu_t) \\
+    \mu_0 = \mu
+\end{cases}       
+\end{equation*}
+
+These definitions, as well as the main ideas, are taken from \cite{craig2017gradient}.
+
+Intuitively, this means that $(\mu_t)$ evolves in the direction of steepest 
+descent of $F$. This formulation suits well the task of "improving" datapoints,
+when starting from a given initial point and optimizing a given functional
+over the Wasserstein space.
+
+To compute the gradient flow of a specific function, we turn back to the 
+continuity equation \ref{eq:continuity}:
+\[\frac{d}{dt}\mu_t + \nabla \cdot (v_t\mu_t) = 0\]
+which means that, in the Wasserstein space, all gradient flows are of the form:
+\[v = -\nabla\frac{\partial F}{\partial \mu} \]
+
+One common technique for approximating these gradient flows is to pursue 
+\textit{particle approximation}. In general, these $\mu$ are continuous
+variables, so one approximates them with a set of Dirac masses and then 
+shifts the points in the directions of steepest descent.
+
+We shall see two cases, when $v$ is nice, and when we need to approximate 
+the function. For our case, we will most likely have to use the second
+possibility.
+
+\subsection{If $v$ is "nice"}
+
+In a theoretical setting where the functional $F$ is well-behaved and the 
+vector space is easy to compute, we can apply it to every Dirac mass.
+
+We would like to find an approximate solution for the ODE:
+\[\frac{d}{dt}\mu(x,t) + \nabla (v(x,t)\mu(x,t)) = 0 \]
+
+We will do a displacement for every atom of $\mu$, with respect to the 
+tangent vector space $v$, since $v$ is nicely determined. Formally, if:
+\[\mu = \sum_{i=1}^n\delta_{x_i}m_i \] 
+then each Dirac mass point will be shifted according to $v$:
+\[\frac{d}{dt}x_i(t) = v(x_i(t), t),\ i\in\overline{1,n}\]
+and obtain the gradient flow:
+\[\mu(t) = \sum_{i=1}^n\delta_{x_i(t)}m_i \]
+
+\subsection{JKO Scheme}
+
+The paper \cite{zhang2018policy} has gone to the length of transposing the 
+physics-inspired theory into a framework for policy optimization. They define 
+a \textit{policy} as a distribution over an action space, which is essentially 
+the same mathematical object as our point clouds. Then they use the JKO 
+scheme to approximate their loss functions (for reinforcement learning, 
+in their case) and perform particle optimization.
+
+The inspiration for this scheme comes from the Euclidean case. On the 
+space $\mathbb{R}^d$, the standard iterative step for the gradient 
+descent method is formulated as:
+\[x_{k+1} = x_k - \nabla F(x_{k+1})h \]
+or, equivalently, solving the optimization problem:
+\[x_{k+1} = \arg\min_{x\in \mathbb{R}^d} F(x)+ \frac{\norm{x - x_k}_2^2}{2h} \]
+
+For the Wasserstein metric, in a similar fashion, 
+\begin{equation}
+    \label{eq:jkoupdate}
+    \mu_{k+1} = \arg\min_{\mu\in\mathscr{P}_2(M)} F(\mu)+ \frac{W_2^2(\mu - \mu_k)}{2h}
+\end{equation}
+
+This seems intractable in the general case. However, there are multiple
+types of approximating this process, if the functional $F$ has an appropriate 
+form. These forms seem to be taken from physics theory, so maybe someone 
+with more extensive physics knowledge can contribute here. In any case,
+paper \cite{zhang2018policy} has a short yet comprehensive overview of this,
+and they manage to restate their physics-unrelated problem into something 
+that conforms to this form.
+
+Specifically, $F$ needs to be of the form:
+\[F(\mu)\coloneqq -\int U(\mathbf{x})\mu(\mathbf{x})dx + \int
+\mu(\mathbf{x})\log(\mu(\mathbf{x}))d\mathbf{x} \]
+where $U:\mathbb{R}^d\rightarrow \mathbb{R}^d$ is a function called the 
+\textit{drift term.}
+
+For this particular formulation, the process \ref{eq:jkoupdate} becomes 
+equivalent to:
+\[\mu_{k+1} = \arg\min_{\mu\in\mathscr{P}_2(M)} \mathbf{KL}(\mu\parallel p(\mathbf{x}))+ \frac{W_2^2(\mu - \mu_k)}{2h} \]
+where $p(\mathbf{x})\coloneqq \frac{1}{Z}e^{U(\mathbf{x})}$ is the target 
+distribution, and $\mathbf{KL}$ is the Kullback-Leibler divergence operator.
+
+\subsection{Discussion}
+
+Most likely, $v$ is not "nice", so we would have to apply the JKO scheme
+and find a proper way of approximating the solutions. Hopefully one of 
+the classic ways of approximating this function will work for us.
+
+\bibliographystyle{ieeetr}
+\bibliography{thesisbib}
 
 \end{document}
