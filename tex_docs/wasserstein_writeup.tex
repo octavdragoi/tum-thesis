@@ -294,7 +294,6 @@ is defined as:
 where the locations $Z_t$ are computed as:
 \[ Z_t = [z_1^t,\dots,z_p^t] \coloneqq Y-V_1 + t(V_1+V_2)\]
 
-
 \subsection{Discussion}
 
 In summary, this problem takes a set of point clouds as input, and constructs 
@@ -398,6 +397,7 @@ equivalent to:
 \[\mu_{k+1} = \arg\min_{\mu\in\mathscr{P}_2(M)} \mathbf{KL}(\mu\parallel p(\mathbf{x}))+ \frac{W_2^2(\mu - \mu_k)}{2h} \]
 where $p(\mathbf{x})\coloneqq \frac{1}{Z}e^{U(\mathbf{x})}$ is the target 
 distribution, and $\mathbf{KL}$ is the Kullback-Leibler divergence operator.
+This should have a somewhat tractable way of computing the gradient.
 
 \subsection{Discussion}
 
