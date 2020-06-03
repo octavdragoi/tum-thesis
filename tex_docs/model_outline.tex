@@ -1,0 +1,37 @@
+\documentclass{article}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{amssymb}
+\usepackage{amsmath}
+\usepackage{mathrsfs}
+\usepackage{bm}
+\usepackage{mathtools}
+\usepackage{fullpage}
+\usepackage{wrapfig}
+\usepackage{hyperref}
+
+\newcommand{\norm}[1]{\left\lVert#1\right\rVert}
+
+\begin{document}
+
+\title{Graph Optimization - Model Outline}
+\author{Octav Dragoi}
+
+\maketitle
+
+\section{Introduction}
+We describe all the steps of the model we are planning to implement. By and large, these are:
+\begin{enumerate}
+    \item Node embedding generator
+    \item Point cloud optimizer
+    \item Point cloud resizer
+    \item Molecular discretizer
+\end{enumerate}
+
+\section{Node Embeddings}
+A given molecular graph consists of atoms and interatomic bonds, each with their own set of characteristics. For each such graph, we generate a set of point cloud embeddings in $\mathbb{R}^d, d\in \mathbb{N}$, where each point corresponds to one of the atoms. Thus, the number of points will be equal to the number of atoms in the molecule, and their relative positions in the metric space $\mathbb{R}^d$ should encode the bonds and relationships between them.
+
+
+
+
+\end{document}
