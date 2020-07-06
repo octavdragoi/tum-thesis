@@ -11,6 +11,10 @@ def get_args():
     parser.add_argument('-ffn_activation', type=str, choices=['ReLU', 'LeakyReLU'],
                         default='LeakyReLU')
 
+    # General Model Params
+    parser.add_argument('-n_epochs', type=int, default=10,
+                        help='Number of epochs to train on')
+
     # GCN Params
     parser.add_argument('-n_layers', type=int, default=5,
                         help='Number of layers in model')
