@@ -276,3 +276,8 @@ TSWLatexianTemp*
 
 # Makeindex log files
 *.lpz
+
+*.pyc
+.ipynb_checkpoints/
+.vscode
+__MACOSX/

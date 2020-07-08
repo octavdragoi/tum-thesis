@@ -4,6 +4,9 @@ def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('-cuda', action='store_true', default=False,
                         help='Use gpu')
+    parser.add_argument('-output_dir', default='', help='Output directory')
+    parser.add_argument('-init_model', type=str, default=None,
+                    help='name of model to pick up from output directory; useful in training')
 
     # Prototype Params
     parser.add_argument('-pc_hidden', type=int, default=50,
