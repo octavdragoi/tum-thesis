@@ -8,10 +8,10 @@ from rdkit.Chem import MolFromSmiles
 
 
 class MolOptDataset(Dataset):
-    def __init__(self, data_dir, same_number_atoms = False):
+    def __init__(self, data_dir, data_type = "train", same_number_atoms = False):
         self.data = []
 
-        with open('%s/train_pairs.txt' % data_dir, 'r+') as datafile:
+        with open('{}/{}_pairs_split.txt'.format(data_dir, data_type), 'r+') as datafile:
             for line in datafile.readlines():
                 if 'smiles' not in line:
                     smiles = line.strip().split(' ')
@@ -33,9 +33,9 @@ class MolOptDataset(Dataset):
 
 
 
-def get_loader(data_dir, batch_size, same_number_atoms = False,
+def get_loader(data_dir, data_type, batch_size, same_number_atoms = False,
                shuffle=False, num_workers=1):
-    molopt_dataset = MolOptDataset(data_dir, same_number_atoms)
+    molopt_dataset = MolOptDataset(data_dir, data_type, same_number_atoms)
 
     def combine_data(data):
         batch_initial, batch_optim = zip(*data)
