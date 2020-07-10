@@ -7,8 +7,12 @@ def get_args():
     parser.add_argument('-output_dir', default='', help='Output directory')
     parser.add_argument('-init_model', type=str, default=None,
                     help='name of model to pick up from output directory; useful in training')
+    parser.add_argument('-init_decoder_model', type=str, default=None,
+                    help='name of decoder model to pick up from output directory; useful in training')
 
     # Prototype Params
+    parser.add_argument('-pred_hidden', type=int, default=50,
+                        help='Hidden dim for symbol prediction')
     parser.add_argument('-pc_hidden', type=int, default=50,
                         help='Hidden dim for point clouds, different from GCN hidden dim')
     parser.add_argument('-ffn_activation', type=str, choices=['ReLU', 'LeakyReLU'],

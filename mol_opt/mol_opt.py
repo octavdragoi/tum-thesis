@@ -5,6 +5,7 @@ sys.path.append("..")
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from otgnn.models import GCN, compute_ot
 
@@ -18,17 +19,11 @@ class MolOpt(nn.Module):
         self.GCN = GCN(self.args).to(device = args.device)
 
         # for the optimizer part
-        self.opt0 = nn.Linear(self.args.pc_hidden, self.args.pc_hidden).to(device = args.device)
-        self.opt1 = nn.Linear(self.args.pc_hidden, self.args.n_hidden).to(device = args.device)
-
-        # loss
-        self.delta_loss = nn.MSELoss()
+        self.opt0 = nn.Linear(self.args.pc_hidden, self.args.n_hidden).to(device = args.device)
+        self.opt1 = nn.Linear(self.args.n_hidden, self.args.pc_hidden).to(device = args.device)
 
     def encode(self, batch):
         return self.GCN(batch)[0]
-
-    def delta(self, x_embedding, y_embedding):
-        return y_embedding - x_embedding
 
     def optimize(self, x_embedding, x_batch):
         return self.opt1(nn.LeakyReLU()(self.opt0(x_embedding)))
@@ -37,6 +32,22 @@ class MolOpt(nn.Module):
         x_embedding = self.encode(x_batch)
         x_delta_hat = self.optimize(x_embedding, x_batch)
         return x_embedding, x_delta_hat
+
+
+    # implemented this to try and apply the error directly between the 
+    # x and y embeddings. didn't work, though
+    def forward_train(self, x_batch, y_batch):
+        # get the predicted value
+        x_embedding, x_delta_hat = self.forward(x_batch)
+
+        # get the delta between the two nodes, to retrieve the embedding
+        y_embedding = self.encode(y_batch)
+        y_embedding_aligned = self.align(x_embedding, x_batch, y_embedding, y_batch)
+        xy_delta = self.delta(y_embedding_aligned, x_embedding)
+
+        # print (x_embedding.shape, y_embedding.shape, y_embedding_aligned.shape, xy_delta.shape, x_delta_hat.shape)
+
+        return nn.MSELoss(x_delta_hat, xy_delta)
 
     def align(self, x_embedding, x_batch, y_embedding, y_batch):
         # using the OT permutation matrix between the two embeddings,
@@ -60,15 +71,5 @@ class MolOpt(nn.Module):
             pmatrix[stx:stx+lex,:] = torch.mm(OT_xy[2] * lenx, y_narrow)
         return pmatrix
 
-    def forward_train(self, x_batch, y_batch):
-        # get the predicted value
-        x_embedding, x_delta_hat = self.forward(x_batch)
-
-        # get the delta between the two nodes, to retrieve the embedding
-        y_embedding = self.encode(y_batch)
-        y_embedding_aligned = self.align(x_embedding, x_batch, y_embedding, y_batch)
-        xy_delta = self.delta(y_embedding_aligned, x_embedding)
-
-        # print (x_embedding.shape, y_embedding.shape, y_embedding_aligned.shape, xy_delta.shape, x_delta_hat.shape)
-
-        return self.delta_loss(x_delta_hat, xy_delta)
+    def delta(self, x_embedding, y_embedding):
+        return y_embedding - x_embedding

@@ -11,6 +11,8 @@ from mol_opt.data_mol_opt import MolOptDataset
 from mol_opt.data_mol_opt import get_loader
 from mol_opt.arguments import get_args
 from mol_opt.mol_opt import MolOpt
+from mol_opt.decoder_mol_opt import MolOptDecoder
+from mol_opt.fgw import FGW
 
 from rdkit.Chem import MolFromSmiles
 
@@ -28,21 +30,29 @@ def get_latest_model(model_name, outdir):
     return "{}_{}_{}".format("model", model_name, max_epoch), max_epoch
 
 
-def main(args = None, molopt = None, train_data_loader = None, val_data_loader = None):
+def main(args = None, train_data_loader = None, val_data_loader = None):
     if args is None:
         args = get_args()
         args.output_dir = "mol_opt/output"
 
     # if model is not created yet, then create a new one
     prev_epoch = -1 
-    if molopt is None:
-        # preload previously trained model, if configured
-        model_name, prev_epoch = get_latest_model(args.init_model, args.output_dir)
-        if model_name is not None:
-            molopt, _ = load_model(os.path.join(args.output_dir, model_name), 
-                MolOpt, args.device)
-        else:
-            molopt = MolOpt(args).to(device = args.device)
+    # preload previously trained model, if configured
+    # this part loads the encoder model
+    model_name, prev_epoch = get_latest_model(args.init_model, args.output_dir)
+    if model_name is not None:
+        molopt, _ = load_model(os.path.join(args.output_dir, model_name), 
+            MolOpt, args.device)
+    else:
+        molopt = MolOpt(args).to(device = args.device)
+
+    # load the decoder model
+    model_name, prev_epoch = get_latest_model(args.init_decoder_model, args.output_dir)
+    if model_name is not None:
+        molopt_decoder, _ = load_model(os.path.join(args.output_dir, model_name), 
+            MolOptDecoder, args.device)
+    else:
+        molopt_decoder = MolOptDecoder(args).to(device = args.device)
 
     # the data is from Wengong's repo
     datapath = "iclr19-graph2graph/data/qed"
@@ -59,30 +69,35 @@ def main(args = None, molopt = None, train_data_loader = None, val_data_loader =
         print ("Epoch:", epoch)
 
         # run the training procedure
-        run_func(molopt, optimizer, train_data_loader, "train", args)
+        run_func(molopt, molopt_decoder, optimizer, train_data_loader, "train", args)
 
         # compute the validation loss as well, at the end of the epoch?
-        run_func(molopt, optimizer, val_data_loader, "val", args)
+        run_func(molopt, molopt_decoder, optimizer, val_data_loader, "val", args)
 
         end = time.time()
         print("Epoch duration:", end - start)
 
         # save your progress along the way
         save_model(molopt, args, args.output_dir, "{}_{}".format(args.init_model, epoch))
+        save_model(molopt_decoder, args, args.output_dir, "{}_{}".format(args.init_decoder_model, epoch))
     
     return molopt
 
 
-def run_func(model, optim, data_loader, data_type, args):
+def run_func(mol_opt, mol_opt_decoder, optim, data_loader, data_type, args):
     """ 
     Function that trains the GCN embeddings.
     Also used for validation purposes.
     """
     is_train = data_type == 'train'
     if is_train:
-        model.train()
+        mol_opt.train()
+        mol_opt_decoder.train()
     else:
-        model.eval()
+        mol_opt.eval()
+        mol_opt_decoder.eval()
+
+    fgw_loss = FGW(alpha = 0.5)
 
     stats_tracker = StatsTracker()
     for _, i in enumerate(data_loader):
@@ -91,7 +106,11 @@ def run_func(model, optim, data_loader, data_type, args):
         X = (MolGraph(i[0]))
         Y = (MolGraph(i[1]))
 
-        loss = model.forward_train(X, Y)
+        x_embedding, x_delta_hat = mol_opt.forward(X)
+        yhat_embedding = x_embedding + x_delta_hat
+        yhat_logits = mol_opt_decoder.forward(yhat_embedding, Y)
+        yhat_labels = mol_opt_decoder.discretize(*yhat_logits)
+        loss = fgw_loss((yhat_labels, yhat_logits, Y.scope), Y)
 
         # add stat
         n_data = len(X.mols)
