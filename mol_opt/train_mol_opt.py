@@ -21,9 +21,10 @@ import time
 
 def get_latest_model(model_name, outdir):
     split_names = [x.split("_") for x in os.listdir(outdir)]
+    split_names = [[x[0], "_".join(x[1:-1]), x[-1]] for x in split_names]
     try:
         max_epoch = max([int(x[2]) for x in split_names if x[0] == "model" and 
-                            x[1] == model_name and len(x) == 3])
+                            x[1] == model_name])
     except ValueError:
         print ("No model {} found in {}! Starting from scratch.".format(model_name, outdir))
         return None, 0
