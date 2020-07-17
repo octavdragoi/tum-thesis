@@ -21,6 +21,9 @@ def get_args():
     # General Model Params
     parser.add_argument('-n_epochs', type=int, default=10,
                         help='Number of epochs to train on')
+    parser.add_argument('-dim_tangent_space', type=int, default=40,
+                        help='Tangent space dimension for graph embeddings')
+
 
     # GCN Params
     parser.add_argument('-n_layers', type=int, default=5,
@@ -37,6 +40,13 @@ def get_args():
                         default='sum', help='aggregator function for atoms')
     parser.add_argument('-batch_norm', action='store_true', default=False,
                         help='Whether or not to normalize atom embeds')
+
+    # Transformer Params
+    parser.add_argument('-N_transformer', type = int, default = 6)
+    parser.add_argument('-n_ffn_transformer', type = int, default = 100)
+    parser.add_argument('-n_heads_transformer', type = int, default = 10)
+    parser.add_argument('-dropout_transformer', type = float, default = 0.1)
+
 
     args = parser.parse_args()
     args.device = 'cuda:0' if args.cuda else 'cpu'

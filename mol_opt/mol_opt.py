@@ -17,13 +17,33 @@ class MolOpt(nn.Module):
 
         # for embeddings
         self.GCN = GCN(self.args).to(device = args.device)
+        self.ref = torch.randn(self.args.dim_tangent_space, self.args.pc_hidden, device = args.device)
+        self.Href = np.ones(self.args.dim_tangent_space)/self.args.dim_tangent_space
+        self.Nref = self.args.dim_tangent_space
 
         # for the optimizer part
         self.opt0 = nn.Linear(self.args.pc_hidden, self.args.n_hidden).to(device = args.device)
         self.opt1 = nn.Linear(self.args.n_hidden, self.args.pc_hidden).to(device = args.device)
 
     def encode(self, batch):
-        return self.GCN(batch)[0]
+        # get GCN embedding
+        embedding = self.GCN(batch)[0]
+
+        return self.project(embedding, batch)
+
+    def project(self, embedding, batch):
+        """ Project on the tangent space
+        As seen in the Kolouri paper and jupyter notebook 
+        """
+        tg_embedding = torch.empty(self.Nref * len(batch.scope), 50, device = self.args.device)
+        for idx, (stx, lex) in enumerate(batch.scope):
+            narrow = embedding.narrow(0, stx, lex)
+            H = np.ones(lex)/lex
+            _,_,OT_xy,_ = compute_ot(narrow, self.ref, H, self.Href, sinkhorn_entropy = 0.1, device = self.args.device)
+            V = torch.matmul((self.Nref * OT_xy).T, narrow) - self.ref
+            tg_embedding[idx*self.Nref : (idx+1)*self.Nref,:] = V / np.sqrt(self.Nref)
+        
+        return tg_embedding
 
     def optimize(self, x_embedding, x_batch):
         return self.opt1(nn.LeakyReLU()(self.opt0(x_embedding)))
@@ -32,44 +52,3 @@ class MolOpt(nn.Module):
         x_embedding = self.encode(x_batch)
         x_delta_hat = self.optimize(x_embedding, x_batch)
         return x_embedding, x_delta_hat
-
-
-    # implemented this to try and apply the error directly between the 
-    # x and y embeddings. didn't work, though
-    def forward_train(self, x_batch, y_batch):
-        # get the predicted value
-        x_embedding, x_delta_hat = self.forward(x_batch)
-
-        # get the delta between the two nodes, to retrieve the embedding
-        y_embedding = self.encode(y_batch)
-        y_embedding_aligned = self.align(x_embedding, x_batch, y_embedding, y_batch)
-        xy_delta = self.delta(y_embedding_aligned, x_embedding)
-
-        # print (x_embedding.shape, y_embedding.shape, y_embedding_aligned.shape, xy_delta.shape, x_delta_hat.shape)
-
-        return nn.MSELoss(x_delta_hat, xy_delta)
-
-    def align(self, x_embedding, x_batch, y_embedding, y_batch):
-        # using the OT permutation matrix between the two embeddings,
-        # align them so that we can determine the delta vector
-        # keep the original alignment of the x vector, of course
-        # this is made tricker by the batched processing, though
-        pmatrix = torch.zeros_like(y_embedding)
-        for (stx, lex), (sty, ley) in zip(x_batch.scope, y_batch.scope):
-            x_narrow = x_embedding.narrow(0, stx, lex)
-            y_narrow = y_embedding.narrow(0, sty, ley)
-            lenx = x_narrow.shape[0]
-            leny = y_narrow.shape[0]
-            Hx = np.ones(lenx)/lenx
-            Hy = np.ones(leny)/leny
-
-            OT_xy = compute_ot(x_narrow, y_narrow,
-                opt_method = 'emd',
-                sinkhorn_max_it = 150, device = self.args.device,
-                H_1 = Hx, H_2 = Hy, sinkhorn_entropy = 0.1)
-
-            pmatrix[stx:stx+lex,:] = torch.mm(OT_xy[2] * lenx, y_narrow)
-        return pmatrix
-
-    def delta(self, x_embedding, y_embedding):
-        return y_embedding - x_embedding
