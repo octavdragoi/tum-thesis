@@ -6,6 +6,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.autograd import Variable
 
 from otgnn.models import GCN, compute_ot
 
@@ -17,7 +18,8 @@ class MolOpt(nn.Module):
 
         # for embeddings
         self.GCN = GCN(self.args).to(device = args.device)
-        self.ref = torch.randn(self.args.dim_tangent_space, self.args.pc_hidden, device = args.device)
+        self.ref = Variable(torch.randn(self.args.dim_tangent_space, self.args.pc_hidden, device = args.device),
+                requires_grad=True)
         self.Href = np.ones(self.args.dim_tangent_space)/self.args.dim_tangent_space
         self.Nref = self.args.dim_tangent_space
 
@@ -39,7 +41,8 @@ class MolOpt(nn.Module):
         for idx, (stx, lex) in enumerate(batch.scope):
             narrow = embedding.narrow(0, stx, lex)
             H = np.ones(lex)/lex
-            _,_,OT_xy,_ = compute_ot(narrow, self.ref, H, self.Href, sinkhorn_entropy = 0.1, device = self.args.device)
+            _,_,OT_xy,_ = compute_ot(narrow, self.ref, H, self.Href, sinkhorn_entropy = 0.1, 
+                    device = self.args.device, opt_method='emd', sinkhorn_max_it= 1000)
             V = torch.matmul((self.Nref * OT_xy).T, narrow) - self.ref
             tg_embedding[idx*self.Nref : (idx+1)*self.Nref,:] = V / np.sqrt(self.Nref)
         

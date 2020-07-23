@@ -11,7 +11,7 @@ def get_args():
                     help='name of decoder model to pick up from output directory; useful in training')
 
     # Prototype Params
-    parser.add_argument('-pred_hidden', type=int, default=50,
+    parser.add_argument('-pred_hidden', type=int, default=100,
                         help='Hidden dim for symbol prediction')
     parser.add_argument('-pc_hidden', type=int, default=50,
                         help='Hidden dim for point clouds, different from GCN hidden dim')
@@ -47,6 +47,14 @@ def get_args():
     parser.add_argument('-n_heads_transformer', type = int, default = 10)
     parser.add_argument('-dropout_transformer', type = float, default = 0.1)
 
+    # OT Params
+    parser.add_argument('-ot_solver', type=str, default='emd',
+                        choices=['sinkhorn', 'sinkhorn_stabilized', 'emd',
+                                 'greenkhorn', 'sinkhorn_epsilon_scaling'])
+    parser.add_argument('-sinkhorn_entropy', type=float, default=1e-1,
+                        help='Entropy regularization term for sinkhorn')
+    parser.add_argument('-sinkhorn_max_it', type=int, default=10000,
+                        help='Max num it for sinkhorn')
 
     args = parser.parse_args()
     args.device = 'cuda:0' if args.cuda else 'cpu'

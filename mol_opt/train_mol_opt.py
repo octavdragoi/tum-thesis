@@ -12,7 +12,7 @@ from mol_opt.data_mol_opt import get_loader
 from mol_opt.arguments import get_args
 from mol_opt.mol_opt import MolOpt
 from mol_opt.decoder_mol_opt import MolOptDecoder
-from mol_opt.fgw import FGW
+from mol_opt.ot_utils import FGW
 
 from rdkit.Chem import MolFromSmiles
 
