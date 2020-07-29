@@ -23,6 +23,8 @@ def get_args():
                         help='Number of epochs to train on')
     parser.add_argument('-dim_tangent_space', type=int, default=40,
                         help='Tangent space dimension for graph embeddings')
+    parser.add_argument('-penalty_lambda', type=float, default=0.05,
+                        help='Weighting parameter for penalty')
 
 
     # GCN Params

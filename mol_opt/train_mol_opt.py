@@ -12,7 +12,7 @@ from mol_opt.data_mol_opt import get_loader
 from mol_opt.arguments import get_args
 from mol_opt.mol_opt import MolOpt
 from mol_opt.decoder_mol_opt import MolOptDecoder
-from mol_opt.ot_utils import FGW
+from mol_opt.ot_utils import FGW, Penalty
 
 from rdkit.Chem import MolFromSmiles
 
@@ -99,9 +99,10 @@ def run_func(mol_opt, mol_opt_decoder, optim, data_loader, data_type, args):
         mol_opt_decoder.eval()
 
     fgw_loss = FGW(alpha = 0.5)
+    pen_loss = Penalty()
 
     stats_tracker = StatsTracker()
-    for _, i in enumerate(data_loader):
+    for idx_batch, i in enumerate(data_loader):
         if is_train:
             optim.zero_grad()   # zero the gradient buffers
         X = (MolGraph(i[0]))
@@ -111,17 +112,27 @@ def run_func(mol_opt, mol_opt_decoder, optim, data_loader, data_type, args):
         yhat_embedding = x_embedding + x_delta_hat
         yhat_logits = mol_opt_decoder.forward(yhat_embedding, Y)
         yhat_labels = mol_opt_decoder.discretize(*yhat_logits)
-        loss = fgw_loss((yhat_labels, yhat_logits, Y.scope), Y)
+        pred_pack = (yhat_labels, yhat_logits, Y.scope), Y
+        model_loss = fgw_loss(*pred_pack)
+        penalty_loss = pen_loss(*pred_pack)
+
+        loss = model_loss + args.penalty_lambda * penalty_loss
 
         # add stat
         n_data = len(X.mols)
-        stats_tracker.add_stat(data_type + '_mse', loss.item() * n_data, n_data)
+        stats_tracker.add_stat(data_type + '_fgw', model_loss.item(), n_data)
+        stats_tracker.add_stat(data_type + '_penalty', penalty_loss.item(), n_data)
+        stats_tracker.add_stat(data_type + '_total', loss.item(), n_data)
 
         # in your training loop:
         if is_train:
             loss.backward()
             optim.step()    # Does the update
         
+        if idx_batch % 50 == 0:
+            print("idx batch", idx_batch, )
+            stats_tracker.print_stats()
+
     stats_tracker.print_stats()
 
 
