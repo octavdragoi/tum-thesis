@@ -129,7 +129,7 @@ def run_func(mol_opt, mol_opt_decoder, optim, data_loader, data_type, args):
             loss.backward()
             optim.step()    # Does the update
         
-        if idx_batch % 50 == 0:
+        if idx_batch % 400 == 0:
             print("idx batch", idx_batch, )
             stats_tracker.print_stats()
 

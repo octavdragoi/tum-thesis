@@ -113,7 +113,8 @@ class Penalty:
         _, _, bonds_logits = logits
         device = bonds_logits.device
 
-        bonds_prob = nn.Softmax(dim = 1)(bonds_logits)[:,-1]# probability of no edge
+        # use the Gumbel softmax to get the actual edges to be predicted 
+        bonds_prob = 1-nn.functional.gumbel_softmax(logits = bonds_logits, hard = False, dim = 1)[:,-1]# probability of no edge
         loss = torch.tensor(0., device=device) # reconstruction loss
         bond_idx = 0
         for _, num_atoms in scope:
