@@ -2,22 +2,37 @@ import os
 import sys
 # need the path to otgnn repo
 sys.path.append(os.path.join(os.getcwd(), "otgnn")) 
+sys.path.append(os.path.join(os.getcwd(), "molgen")) 
 
 from otgnn.models import GCN
 from otgnn.graph import MolGraph
-from otgnn.utils import save_model, load_model, StatsTracker
+from otgnn.utils import save_model, load_model, StatsTracker, log_tensorboard
+from otgnn.graph import SYMBOLS, FORMAL_CHARGES, BOND_TYPES
 
 from mol_opt.data_mol_opt import MolOptDataset
 from mol_opt.data_mol_opt import get_loader
 from mol_opt.arguments import get_args
 from mol_opt.mol_opt import MolOpt
 from mol_opt.decoder_mol_opt import MolOptDecoder
-from mol_opt.ot_utils import FGW, Penalty
+from mol_opt.ot_utils import FGW 
+from mol_opt.task_metrics import measure_task
 
-from rdkit.Chem import MolFromSmiles
+from molgen.metrics.Penalty import Penalty
+from molgen.metrics.mol_metrics import MolMetrics
+from molgen.dataloading.mol_drawer import MolDrawer
+
+from rdkit import Chem
+
+from tensorboardX import SummaryWriter
 
 import torch
 import time
+
+ft = {
+    "SYMBOLS" : SYMBOLS,
+    "BOND_TYPES" : BOND_TYPES,
+    "FORMAL_CHARGES" : FORMAL_CHARGES
+}
 
 def get_latest_model(model_name, outdir):
     split_names = [x.split("_") for x in os.listdir(outdir)]
@@ -65,27 +80,37 @@ def main(args = None, train_data_loader = None, val_data_loader = None):
     # create your optimizer
     optimizer = torch.optim.Adam(molopt.parameters(), lr=0.01)
 
+    tb_writer = SummaryWriter(logdir = "mol_opt/logs")
+    metrics = MolMetrics(SYMBOLS, FORMAL_CHARGES, BOND_TYPES, False)
+    pen_loss = Penalty(ft, connectivity=True, valency=True, num_samples_for_valency= 1,
+            conn_lambda=0.01, valency_lambda=0.0015,
+            prev_epoch=prev_epoch, annealing_rate = 0.08)
     for epoch in range(prev_epoch + 1, prev_epoch + args.n_epochs + 1):
         start = time.time()
         print ("Epoch:", epoch)
 
         # run the training procedure
-        run_func(molopt, molopt_decoder, optimizer, train_data_loader, "train", args)
+        run_func(molopt, molopt_decoder, optimizer, train_data_loader, "train", 
+                args, tb_writer, metrics, pen_loss, epoch)
 
         # compute the validation loss as well, at the end of the epoch?
-        run_func(molopt, molopt_decoder, optimizer, val_data_loader, "val", args)
+        run_func(molopt, molopt_decoder, optimizer, val_data_loader, "val", args, 
+                tb_writer, metrics, pen_loss, epoch)
 
         end = time.time()
         print("Epoch duration:", end - start)
 
         # save your progress along the way
-        save_model(molopt, args, args.output_dir, "{}_{}".format(args.init_model, epoch))
-        save_model(molopt_decoder, args, args.output_dir, "{}_{}".format(args.init_decoder_model, epoch))
+        save_model(molopt, args, args.output_dir, 
+                "{}_{}".format(args.init_model, epoch))
+        save_model(molopt_decoder, args, args.output_dir, 
+                "{}_{}".format(args.init_decoder_model, epoch))
     
     return molopt
 
 
-def run_func(mol_opt, mol_opt_decoder, optim, data_loader, data_type, args):
+def run_func(mol_opt, mol_opt_decoder, optim, data_loader, data_type, args, 
+        tb_writer, metrics, pen_loss, epoch_idx):
     """ 
     Function that trains the GCN embeddings.
     Also used for validation purposes.
@@ -99,9 +124,9 @@ def run_func(mol_opt, mol_opt_decoder, optim, data_loader, data_type, args):
         mol_opt_decoder.eval()
 
     fgw_loss = FGW(alpha = 0.5)
-    pen_loss = Penalty()
 
     stats_tracker = StatsTracker()
+    mol_drawer = MolDrawer(tb_writer, SYMBOLS, BOND_TYPES, FORMAL_CHARGES)
     for idx_batch, i in enumerate(data_loader):
         if is_train:
             optim.zero_grad()   # zero the gradient buffers
@@ -114,27 +139,46 @@ def run_func(mol_opt, mol_opt_decoder, optim, data_loader, data_type, args):
         yhat_labels = mol_opt_decoder.discretize(*yhat_logits)
         pred_pack = (yhat_labels, yhat_logits, Y.scope), Y
         model_loss = fgw_loss(*pred_pack)
-        penalty_loss = pen_loss(*pred_pack)
+        con_loss, val_loss = pen_loss(*pred_pack, epoch_idx)
 
-        loss = model_loss + args.penalty_lambda * penalty_loss
+        loss = model_loss + args.penalty_lambda * (con_loss + val_loss)
 
         # add stat
         n_data = len(X.mols)
         stats_tracker.add_stat(data_type + '_fgw', model_loss.item(), n_data)
-        stats_tracker.add_stat(data_type + '_penalty', penalty_loss.item(), n_data)
+        stats_tracker.add_stat(data_type + '_connect_penalty', con_loss.item(), n_data)
+        stats_tracker.add_stat(data_type + '_valency_penalty', val_loss.item(), n_data)
         stats_tracker.add_stat(data_type + '_total', loss.item(), n_data)
+
+        # add metric stats
+        # we might want to do this only for the validation set
+        measure_results = measure_task(X, pred_pack[0])
+        for key in measure_results:
+            stats_tracker.add_stat("{}_{}".format(data_type, key), measure_results[key], n_data)
 
         # in your training loop:
         if is_train:
             loss.backward()
             optim.step()    # Does the update
+
+        if idx_batch == 0 and not is_train: 
+            # measure
+            target = Y.get_graph_outputs()
+            res = metrics.measure_batch(pred_pack[0], target)
+            for m in res:
+                stats_tracker.add_stat("{}_{}".format(data_type, m), res[m], 1)
+
+            # draw
+            initial_smiles = [Chem.MolToSmiles(x) for x in X.rd_mols]
+            target_smiles = [Chem.MolToSmiles(y) for y in Y.rd_mols]
+            mol_drawer.visualize_batch(pred_pack[0], target_smiles, epoch_idx, initial_smiles)
+
         
         if idx_batch % 400 == 0:
-            print("idx batch", idx_batch, )
-            stats_tracker.print_stats()
+            stats_tracker.print_stats("idx_batch={}".format(idx_batch))
 
-    stats_tracker.print_stats()
-
+    stats_tracker.print_stats("Epoch {}, {}".format(epoch_idx, data_type))
+    log_tensorboard(tb_writer, stats_tracker.get_stats(), args.init_model, epoch_idx)
 
 if __name__ == "__main__":
     main()

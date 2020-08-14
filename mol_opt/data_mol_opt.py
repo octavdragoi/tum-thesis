@@ -4,15 +4,22 @@ from torch.utils.data import DataLoader
 
 from rdkit.Chem import MolFromSmiles
 
+import numpy as np
+
+np.random.seed(69)
 # some inspiration from otgnn prop_dataset.py
 
 
 class MolOptDataset(Dataset):
-    def __init__(self, data_dir, data_type = "train", same_number_atoms = False):
+    def __init__(self, data_dir, data_type = "train", same_number_atoms = False, 
+                ratio = None):
         self.data = []
 
         with open('{}/{}_pairs_split.txt'.format(data_dir, data_type), 'r+') as datafile:
             for line in datafile.readlines():
+                if ratio is not None:
+                    if np.random.rand() > ratio:
+                        continue
                 if 'smiles' not in line:
                     smiles = line.strip().split(' ')
                     assert len(smiles) == 2
@@ -34,8 +41,8 @@ class MolOptDataset(Dataset):
 
 
 def get_loader(data_dir, data_type, batch_size, same_number_atoms = False,
-               shuffle=False, num_workers=1):
-    molopt_dataset = MolOptDataset(data_dir, data_type, same_number_atoms)
+               shuffle=False, num_workers=1, ratio = None):
+    molopt_dataset = MolOptDataset(data_dir, data_type, same_number_atoms, ratio)
 
     def combine_data(data):
         batch_initial, batch_optim = zip(*data)

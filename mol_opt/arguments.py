@@ -9,6 +9,9 @@ def get_args():
                     help='name of model to pick up from output directory; useful in training')
     parser.add_argument('-init_decoder_model', type=str, default=None,
                     help='name of decoder model to pick up from output directory; useful in training')
+    parser.add_argument('-task', type = str, default = "qed",
+                    help='name of dataset/task to run on',
+                    choices=['logp04', 'logp06','qed','drd2'])
 
     # Prototype Params
     parser.add_argument('-pred_hidden', type=int, default=100,
@@ -23,7 +26,7 @@ def get_args():
                         help='Number of epochs to train on')
     parser.add_argument('-dim_tangent_space', type=int, default=40,
                         help='Tangent space dimension for graph embeddings')
-    parser.add_argument('-penalty_lambda', type=float, default=0.015,
+    parser.add_argument('-penalty_lambda', type=float, default=1,
                         help='Weighting parameter for penalty')
 
 
