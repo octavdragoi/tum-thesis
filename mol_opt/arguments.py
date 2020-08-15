@@ -61,6 +61,17 @@ def get_args():
     parser.add_argument('-sinkhorn_max_it', type=int, default=10000,
                         help='Max num it for sinkhorn')
 
+    # Penalty params
+    parser.add_argument('-connectivity', type=bool, default=True)
+    parser.add_argument('-valency', type=bool, default=True)
+    parser.add_argument('-euler_characteristic_penalty', type=bool, default=True)
+    parser.add_argument('-annealing_rate', type=float, default=0.05)
+    parser.add_argument('-connectivity_lambda', type=float, default=0.01)
+    parser.add_argument('-valency_lambda', type=float, default=0.0015)
+    parser.add_argument('-euler_lambda', type=float, default=0.0015)
+    parser.add_argument('-connectivity_hard', type=bool, default=True)
+    parser.add_argument('-valency_hard', type=bool, default=False)
+
     args = parser.parse_args()
     args.device = 'cuda:0' if args.cuda else 'cpu'
 

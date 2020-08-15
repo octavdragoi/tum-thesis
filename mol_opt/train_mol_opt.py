@@ -82,9 +82,7 @@ def main(args = None, train_data_loader = None, val_data_loader = None):
 
     tb_writer = SummaryWriter(logdir = "mol_opt/logs")
     metrics = MolMetrics(SYMBOLS, FORMAL_CHARGES, BOND_TYPES, False)
-    pen_loss = Penalty(ft, connectivity=True, valency=True, num_samples_for_valency= 1,
-            conn_lambda=0.01, valency_lambda=0.0015,
-            prev_epoch=prev_epoch, annealing_rate = 0.08)
+    pen_loss = Penalty(args, prev_epoch)
     for epoch in range(prev_epoch + 1, prev_epoch + args.n_epochs + 1):
         start = time.time()
         print ("Epoch:", epoch)
@@ -139,15 +137,16 @@ def run_func(mol_opt, mol_opt_decoder, optim, data_loader, data_type, args,
         yhat_labels = mol_opt_decoder.discretize(*yhat_logits)
         pred_pack = (yhat_labels, yhat_logits, Y.scope), Y
         model_loss = fgw_loss(*pred_pack)
-        con_loss, val_loss = pen_loss(*pred_pack, epoch_idx)
+        con_loss, val_loss, eul_loss = pen_loss(*pred_pack, epoch_idx)
 
-        loss = model_loss + args.penalty_lambda * (con_loss + val_loss)
+        loss = model_loss + con_loss + val_loss + eul_loss
 
         # add stat
         n_data = len(X.mols)
         stats_tracker.add_stat(data_type + '_fgw', model_loss.item(), n_data)
-        stats_tracker.add_stat(data_type + '_connect_penalty', con_loss.item(), n_data)
-        stats_tracker.add_stat(data_type + '_valency_penalty', val_loss.item(), n_data)
+        stats_tracker.add_stat(data_type + '_conn_penalty', con_loss.item(), n_data)
+        stats_tracker.add_stat(data_type + '_val_penalty', val_loss.item(), n_data)
+        stats_tracker.add_stat(data_type + '_euler_penalty', eul_loss.item(), n_data)
         stats_tracker.add_stat(data_type + '_total', loss.item(), n_data)
 
         # add metric stats
