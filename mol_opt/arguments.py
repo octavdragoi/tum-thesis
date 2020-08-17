@@ -63,7 +63,7 @@ def get_args():
     parser.add_argument('-connectivity', type=bool, default=True)
     parser.add_argument('-valency', type=bool, default=True)
     parser.add_argument('-euler_characteristic_penalty', type=bool, default=True)
-    parser.add_argument('-annealing_rate', type=float, default=0.00005)
+    parser.add_argument('-annealing_rate', type=float, default=0.0005)
     parser.add_argument('-connectivity_lambda', type=float, default=0.015)
     parser.add_argument('-valency_lambda', type=float, default=0.01)
     parser.add_argument('-euler_lambda', type=float, default=0.015)

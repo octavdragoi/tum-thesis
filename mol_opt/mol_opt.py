@@ -10,6 +10,8 @@ from torch.autograd import Variable
 
 from otgnn.models import GCN, compute_ot
 
+from mol_opt.transformer import make_model
+
 class MolOpt(nn.Module):
     def __init__(self, args):
         """Create the model with all its components"""
@@ -26,6 +28,8 @@ class MolOpt(nn.Module):
         # for the optimizer part
         self.opt0 = nn.Linear(self.args.pc_hidden, self.args.n_hidden).to(device = args.device)
         self.opt1 = nn.Linear(self.args.n_hidden, self.args.pc_hidden).to(device = args.device)
+
+        self.transformer = make_model(args)
 
     def encode(self, batch):
         # get GCN embedding
@@ -49,8 +53,9 @@ class MolOpt(nn.Module):
         return tg_embedding
 
     def optimize(self, x_embedding, x_batch):
-        return self.opt1(nn.LeakyReLU()(self.opt0(x_embedding)))
-        
+        # return self.opt1(nn.LeakyReLU()(self.opt0(x_embedding)))
+        return self.transformer(x_embedding, None)
+
     def forward(self, x_batch):
         x_embedding = self.encode(x_batch)
         x_delta_hat = self.optimize(x_embedding, x_batch)

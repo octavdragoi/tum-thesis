@@ -131,8 +131,7 @@ def run_func(mol_opt, mol_opt_decoder, optim, data_loader, data_type, args,
         X = (MolGraph(i[0]))
         Y = (MolGraph(i[1]))
 
-        x_embedding, x_delta_hat = mol_opt.forward(X)
-        yhat_embedding = x_embedding + x_delta_hat
+        x_embedding, yhat_embedding = mol_opt.forward(X)
         yhat_logits = mol_opt_decoder.forward(yhat_embedding, Y)
         yhat_labels = mol_opt_decoder.discretize(*yhat_logits)
         pred_pack = (yhat_labels, yhat_logits, Y.scope), Y
