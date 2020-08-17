@@ -50,6 +50,7 @@ def main(args = None, train_data_loader = None, val_data_loader = None):
     if args is None:
         args = get_args()
         args.output_dir = "mol_opt/output"
+        args.logs = "mol_opt/logs"
 
     # if model is not created yet, then create a new one
     prev_epoch = -1 
@@ -73,14 +74,14 @@ def main(args = None, train_data_loader = None, val_data_loader = None):
     # the data is from Wengong's repo
     datapath = "iclr19-graph2graph/data/qed"
     if train_data_loader is None:
-        train_data_loader = get_loader(datapath, "train", 48, True)
+        train_data_loader = get_loader(datapath, "train", 36, True)
     if val_data_loader is None:
-        val_data_loader = get_loader(datapath, "val", 48, True)
+        val_data_loader = get_loader(datapath, "val", 36, True)
 
     # create your optimizer
     optimizer = torch.optim.Adam(molopt.parameters(), lr=0.01)
 
-    tb_writer = SummaryWriter(logdir = "mol_opt/logs")
+    tb_writer = SummaryWriter(logdir = args.tb_logs_dir)
     metrics = MolMetrics(SYMBOLS, FORMAL_CHARGES, BOND_TYPES, False)
     pen_loss = Penalty(args, prev_epoch)
     for epoch in range(prev_epoch + 1, prev_epoch + args.n_epochs + 1):
@@ -159,7 +160,7 @@ def run_func(mol_opt, mol_opt_decoder, optim, data_loader, data_type, args,
             loss.backward()
             optim.step()    # Does the update
 
-        if idx_batch == 0 and not is_train: 
+        if (idx_batch == 0 and not is_train) or (idx_batch == 1000 and is_train): 
             # measure
             target = Y.get_graph_outputs()
             res = metrics.measure_batch(pred_pack[0], target)
@@ -169,7 +170,8 @@ def run_func(mol_opt, mol_opt_decoder, optim, data_loader, data_type, args,
             # draw
             initial_smiles = [Chem.MolToSmiles(x) for x in X.rd_mols]
             target_smiles = [Chem.MolToSmiles(y) for y in Y.rd_mols]
-            mol_drawer.visualize_batch(pred_pack[0], target_smiles, epoch_idx, initial_smiles)
+            mol_drawer.visualize_batch(pred_pack[0], target_smiles, epoch_idx, initial_smiles,
+                text="{}-{}-".format(args.init_model, data_type))
 
         
         if idx_batch % 400 == 0:
