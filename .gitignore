@@ -281,3 +281,5 @@ TSWLatexianTemp*
 .ipynb_checkpoints/
 .vscode
 __MACOSX/
+
+*.png

@@ -26,8 +26,6 @@ def get_args():
                         help='Number of epochs to train on')
     parser.add_argument('-dim_tangent_space', type=int, default=40,
                         help='Tangent space dimension for graph embeddings')
-    parser.add_argument('-penalty_lambda', type=float, default=1,
-                        help='Weighting parameter for penalty')
 
 
     # GCN Params
@@ -65,11 +63,11 @@ def get_args():
     parser.add_argument('-connectivity', type=bool, default=True)
     parser.add_argument('-valency', type=bool, default=True)
     parser.add_argument('-euler_characteristic_penalty', type=bool, default=True)
-    parser.add_argument('-annealing_rate', type=float, default=0.05)
-    parser.add_argument('-connectivity_lambda', type=float, default=0.01)
-    parser.add_argument('-valency_lambda', type=float, default=0.0015)
-    parser.add_argument('-euler_lambda', type=float, default=0.0015)
-    parser.add_argument('-connectivity_hard', type=bool, default=True)
+    parser.add_argument('-annealing_rate', type=float, default=0.00005)
+    parser.add_argument('-connectivity_lambda', type=float, default=0.015)
+    parser.add_argument('-valency_lambda', type=float, default=0.01)
+    parser.add_argument('-euler_lambda', type=float, default=0.015)
+    parser.add_argument('-connectivity_hard', type=bool, default=False)
     parser.add_argument('-valency_hard', type=bool, default=False)
 
     args = parser.parse_args()
