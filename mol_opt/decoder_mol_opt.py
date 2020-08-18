@@ -35,7 +35,7 @@ class MolOptDecoder(nn.Module):
         """Get the new embedding from the old one, plus the error term""" 
         return (x_embedding + xy_delta)
 
-    def forward(self, x_embedding, x_batch):
+    def forward(self, x_embedding, x_batch, y_batch):
         """Predict symbols, charges, bonds logits independently"""
         bonds_logits = torch.empty(0, n_BOND_TYPES, device=self.args.device)
         symbols_logits = torch.empty(0, n_SYMBOLS, device=self.args.device)
@@ -47,18 +47,18 @@ class MolOptDecoder(nn.Module):
             # cheating a bit here, by looking at what # of atoms should be
             x_narrow_resized = compute_barycenter(x_narrow, lex)
 
-            symbols_logits_mol = self.fc2_SYMBOLS(F.relu(self.fc1_SYMBOLS(x_narrow_resized)))
+            symbols_logits_mol = self.fc2_SYMBOLS(F.leaky_relu(self.fc1_SYMBOLS(x_narrow_resized)))
             symbols_logits_mol = symbols_logits_mol.view(-1, n_SYMBOLS)
             symbols_logits = torch.cat((symbols_logits, symbols_logits_mol))
 
-            charges_logits_mol = self.fc2_CHARGES(F.relu(self.fc1_CHARGES(x_narrow_resized)))
+            charges_logits_mol = self.fc2_CHARGES(F.leaky_relu(self.fc1_CHARGES(x_narrow_resized)))
             charges_logits_mol = charges_logits_mol.view(-1, n_FORMAL_CHARGES)
             charges_logits = torch.cat((charges_logits, charges_logits_mol))
 
             x1 = x_narrow_resized.view(lex, 1, -1).repeat(1, lex, 1)
             x2 = x_narrow_resized.view(1, lex, -1).repeat(lex, 1, 1)
             _bonds = torch.cat((x1, x2), dim = 2)
-            bonds_logits_mol = self.fc2_BONDS(F.relu(self.fc1_BONDS(_bonds)))
+            bonds_logits_mol = self.fc2_BONDS(F.leaky_relu(self.fc1_BONDS(_bonds)))
             # add matrix with its transpose, to get the 
             bonds_logits_mol = bonds_logits_mol.view(lex, lex, n_BOND_TYPES) 
             bonds_logits_mol = bonds_logits_mol + bonds_logits_mol.permute(1,0,2) 

@@ -45,6 +45,15 @@ def get_latest_model(model_name, outdir):
         return None, 0
     return "{}_{}_{}".format("model", model_name, max_epoch), max_epoch
 
+def initialize_model(init_model_name, model_class, args):
+    model_name, prev_epoch = get_latest_model(init_model_name, args.output_dir)
+    if model_name is not None:
+        molopt, _ = load_model(os.path.join(args.output_dir, model_name), 
+            model_class, args.device)
+    else:
+        molopt = model_class(args).to(device = args.device)
+    return molopt, prev_epoch
+
 
 def main(args = None, train_data_loader = None, val_data_loader = None):
     if args is None:
@@ -56,20 +65,9 @@ def main(args = None, train_data_loader = None, val_data_loader = None):
     prev_epoch = -1 
     # preload previously trained model, if configured
     # this part loads the encoder model
-    model_name, prev_epoch = get_latest_model(args.init_model, args.output_dir)
-    if model_name is not None:
-        molopt, _ = load_model(os.path.join(args.output_dir, model_name), 
-            MolOpt, args.device)
-    else:
-        molopt = MolOpt(args).to(device = args.device)
-
+    molopt, prev_epoch = initialize_model(args.init_model, MolOpt, args)
     # load the decoder model
-    model_name, prev_epoch = get_latest_model(args.init_decoder_model, args.output_dir)
-    if model_name is not None:
-        molopt_decoder, _ = load_model(os.path.join(args.output_dir, model_name), 
-            MolOptDecoder, args.device)
-    else:
-        molopt_decoder = MolOptDecoder(args).to(device = args.device)
+    molopt_decoder, prev_epoch = initialize_model(args.init_decoder_model, MolOptDecoder, args)
 
     # the data is from Wengong's repo
     datapath = "iclr19-graph2graph/data/qed"
@@ -79,7 +77,8 @@ def main(args = None, train_data_loader = None, val_data_loader = None):
         val_data_loader = get_loader(datapath, "val", 36, True)
 
     # create your optimizer
-    optimizer = torch.optim.Adam(molopt.parameters(), lr=0.01)
+    molopt_module_list = torch.nn.ModuleList([molopt, molopt_decoder])
+    optimizer = torch.optim.Adam(molopt_module_list.parameters(), lr=0.01)
 
     tb_writer = SummaryWriter(logdir = args.tb_logs_dir)
     metrics = MolMetrics(SYMBOLS, FORMAL_CHARGES, BOND_TYPES, False)
@@ -132,7 +131,7 @@ def run_func(mol_opt, mol_opt_decoder, optim, data_loader, data_type, args,
         X = (MolGraph(i[0]))
         Y = (MolGraph(i[1]))
 
-        x_embedding, yhat_embedding = mol_opt.forward(X)
+        _, yhat_embedding = mol_opt.forward(X)
         yhat_logits = mol_opt_decoder.forward(yhat_embedding, Y)
         yhat_labels = mol_opt_decoder.discretize(*yhat_logits)
         pred_pack = (yhat_labels, yhat_logits, Y.scope), Y
