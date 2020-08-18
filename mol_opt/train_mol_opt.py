@@ -9,13 +9,13 @@ from otgnn.graph import MolGraph
 from otgnn.utils import save_model, load_model, StatsTracker, log_tensorboard
 from otgnn.graph import SYMBOLS, FORMAL_CHARGES, BOND_TYPES
 
-from mol_opt2.mol_opt.data_mol_opt import MolOptDataset
-from mol_opt2.mol_opt.data_mol_opt import get_loader
-from mol_opt2.mol_opt.arguments import get_args
-from mol_opt2.mol_opt.mol_opt import MolOpt
-from mol_opt2.mol_opt.decoder_mol_opt import MolOptDecoder
-from mol_opt2.mol_opt.ot_utils import FGW 
-from mol_opt2.mol_opt.task_metrics import measure_task
+from mol_opt.data_mol_opt import MolOptDataset
+from mol_opt.data_mol_opt import get_loader
+from mol_opt.arguments import get_args
+from mol_opt.mol_opt import MolOpt
+from mol_opt.decoder_mol_opt import MolOptDecoder
+from mol_opt.ot_utils import FGW 
+from mol_opt.task_metrics import measure_task
 
 from molgen.metrics.Penalty import Penalty
 from molgen.metrics.mol_metrics import MolMetrics
@@ -76,7 +76,7 @@ def main(args = None, train_data_loader = None, val_data_loader = None):
     # the data is from Wengong's repo
     datapath = "iclr19-graph2graph/data/qed"
     if train_data_loader is None:
-        train_data_loader = get_loader(datapath, "train", 36, True)
+        train_data_loader = get_loader(datapath, "train_pairs", 36, True)
     if val_data_loader is None:
         val_data_loader = get_loader(datapath, "val", 36, True)
 
@@ -120,9 +120,11 @@ def run_func(mol_opt, mol_opt_decoder, optim, data_loader, data_type, args,
     """
     is_train = data_type == 'train'
     if is_train:
+        pairs = True
         mol_opt.train()
         mol_opt_decoder.train()
     else:
+        pairs = False
         mol_opt.eval()
         mol_opt_decoder.eval()
 
@@ -133,8 +135,13 @@ def run_func(mol_opt, mol_opt_decoder, optim, data_loader, data_type, args,
     for idx_batch, i in enumerate(data_loader):
         if is_train:
             optim.zero_grad()   # zero the gradient buffers
-        X = (MolGraph(i[0]))
-        Y = (MolGraph(i[1]))
+
+        if pairs:
+            X = (MolGraph(i[0]))
+            Y = (MolGraph(i[1]))
+        else:
+            X = MolGraph(i)
+            Y = X
 
         x_embedding = mol_opt.forward(X)
         yhat_logits = mol_opt_decoder.forward(x_embedding, X, Y)
@@ -172,8 +179,11 @@ def run_func(mol_opt, mol_opt_decoder, optim, data_loader, data_type, args,
                 stats_tracker.add_stat("{}_{}".format(data_type, m), res[m], 1)
 
             # draw
-            initial_smiles = [Chem.MolToSmiles(x) for x in X.rd_mols]
             target_smiles = [Chem.MolToSmiles(y) for y in Y.rd_mols]
+            if pairs:
+                initial_smiles = [Chem.MolToSmiles(x) for x in X.rd_mols]
+            else:
+                initial_smiles = None
             mol_drawer.visualize_batch(pred_pack[0], target_smiles, epoch_idx, initial_smiles,
                 text="{}-{}-".format(args.init_model, data_type))
         
