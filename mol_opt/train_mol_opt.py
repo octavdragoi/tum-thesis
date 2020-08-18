@@ -131,8 +131,8 @@ def run_func(mol_opt, mol_opt_decoder, optim, data_loader, data_type, args,
         X = (MolGraph(i[0]))
         Y = (MolGraph(i[1]))
 
-        _, yhat_embedding = mol_opt.forward(X)
-        yhat_logits = mol_opt_decoder.forward(yhat_embedding, Y)
+        x_embedding = mol_opt.forward(X)
+        yhat_logits = mol_opt_decoder.forward(x_embedding, X, Y)
         yhat_labels = mol_opt_decoder.discretize(*yhat_logits)
         pred_pack = (yhat_labels, yhat_logits, Y.scope), Y
         model_loss = fgw_loss(*pred_pack)
@@ -171,7 +171,6 @@ def run_func(mol_opt, mol_opt_decoder, optim, data_loader, data_type, args,
             target_smiles = [Chem.MolToSmiles(y) for y in Y.rd_mols]
             mol_drawer.visualize_batch(pred_pack[0], target_smiles, epoch_idx, initial_smiles,
                 text="{}-{}-".format(args.init_model, data_type))
-
         
         if idx_batch % 400 == 0:
             stats_tracker.print_stats("idx_batch={}".format(idx_batch))
