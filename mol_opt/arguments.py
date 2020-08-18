@@ -13,6 +13,9 @@ def get_args():
     parser.add_argument('-task', type = str, default = "qed",
                     help='name of dataset/task to run on',
                     choices=['logp04', 'logp06','qed','drd2'])
+    parser.add_argument('-model_type', type = str, default = "ffn",
+                    help='name of model to train',
+                    choices=['ffn', 'transformer', 'slot'])
 
     # Prototype Params
     parser.add_argument('-pred_hidden', type=int, default=100,

@@ -9,13 +9,13 @@ from otgnn.graph import MolGraph
 from otgnn.utils import save_model, load_model, StatsTracker, log_tensorboard
 from otgnn.graph import SYMBOLS, FORMAL_CHARGES, BOND_TYPES
 
-from mol_opt.data_mol_opt import MolOptDataset
-from mol_opt.data_mol_opt import get_loader
-from mol_opt.arguments import get_args
-from mol_opt.mol_opt import MolOpt
-from mol_opt.decoder_mol_opt import MolOptDecoder
-from mol_opt.ot_utils import FGW 
-from mol_opt.task_metrics import measure_task
+from mol_opt2.mol_opt.data_mol_opt import MolOptDataset
+from mol_opt2.mol_opt.data_mol_opt import get_loader
+from mol_opt2.mol_opt.arguments import get_args
+from mol_opt2.mol_opt.mol_opt import MolOpt
+from mol_opt2.mol_opt.decoder_mol_opt import MolOptDecoder
+from mol_opt2.mol_opt.ot_utils import FGW 
+from mol_opt2.mol_opt.task_metrics import measure_task
 
 from molgen.metrics.Penalty import Penalty
 from molgen.metrics.mol_metrics import MolMetrics
@@ -52,6 +52,10 @@ def initialize_model(init_model_name, model_class, args):
             model_class, args.device)
     else:
         molopt = model_class(args).to(device = args.device)
+    if molopt.args.model_type != args.model_type:
+        raise RuntimeError("Loaded model is {}, but configured model is {}.".format(
+            molopt.args.model_type, args.model_type
+        ))
     return molopt, prev_epoch
 
 
@@ -83,6 +87,7 @@ def main(args = None, train_data_loader = None, val_data_loader = None):
     tb_writer = SummaryWriter(logdir = args.tb_logs_dir)
     metrics = MolMetrics(SYMBOLS, FORMAL_CHARGES, BOND_TYPES, False)
     pen_loss = Penalty(args, prev_epoch)
+
     for epoch in range(prev_epoch + 1, prev_epoch + args.n_epochs + 1):
         start = time.time()
         print ("Epoch:", epoch)
@@ -104,7 +109,7 @@ def main(args = None, train_data_loader = None, val_data_loader = None):
         save_model(molopt_decoder, args, args.output_dir, 
                 "{}_{}".format(args.init_decoder_model, epoch))
     
-    return molopt
+    return molopt, molopt_decoder
 
 
 def run_func(mol_opt, mol_opt_decoder, optim, data_loader, data_type, args, 

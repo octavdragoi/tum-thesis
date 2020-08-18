@@ -26,6 +26,10 @@ class MolOptDecoder(nn.Module):
         if args.model_type == "slot":
             self.slot_att = SlotAttention(num_slots = 30, dim=args.pc_hidden, iters = 3)
 
+        if self.args.model_type == "ffn" or args.model_type == "transformer":
+            self.Nref = self.args.dim_tangent_space
+
+
         # TODO: Make a ModuleDict from feature to layers
         self.fc1_SYMBOLS = nn.Linear(self.args.pc_hidden, self.args.pred_hidden).to(device = args.device)
         self.fc2_SYMBOLS = nn.Linear(self.args.pred_hidden, n_SYMBOLS).to(device = args.device)
@@ -49,7 +53,7 @@ class MolOptDecoder(nn.Module):
                 yhat_narrow = self.slot_att(x_narrow, num_slots = ley)
             elif self.args.model_type == "ffn" or self.args.model_type == "transformer":
                 x_narrow = x_embedding.narrow(0, idx*self.Nref, self.Nref)
-                yhat_narrow = compute_barycenter(x_narrow, lex)
+                yhat_narrow = compute_barycenter(x_narrow, ley)
 
             symbols_logits_mol = self.fc2_SYMBOLS(F.leaky_relu(self.fc1_SYMBOLS(yhat_narrow)))
             symbols_logits_mol = symbols_logits_mol.view(-1, n_SYMBOLS)
@@ -63,7 +67,7 @@ class MolOptDecoder(nn.Module):
             x2 = yhat_narrow.view(1, ley, -1).repeat(ley, 1, 1)
             _bonds = torch.cat((x1, x2), dim = 2)
             bonds_logits_mol = self.fc2_BONDS(F.leaky_relu(self.fc1_BONDS(_bonds)))
-            # add matrix with its transpose, to get the 
+            # add matrix with its transpose, to get a symmetric matrix 
             bonds_logits_mol = bonds_logits_mol.view(ley, ley, n_BOND_TYPES) 
             bonds_logits_mol = bonds_logits_mol + bonds_logits_mol.permute(1,0,2) 
             bonds_logits_mol = bonds_logits_mol.view(-1, n_BOND_TYPES)
