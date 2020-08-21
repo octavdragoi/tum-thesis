@@ -21,7 +21,7 @@ def measure_task(X, pred_pack):
     bond_idx = 0
     res = {}
     res["similarity"]=0
-    res["QED"]=0
+    # res["QED"]=0
     res["penlog"]=0
     for mol_idx, (st, le) in enumerate(scope):
         symbols_labels_crt = symbols_labels[st:st+le]
@@ -34,8 +34,8 @@ def measure_task(X, pred_pack):
         bond_idx += le * le
 
         res["similarity"] += props.similarity(pmol, Chem.MolToSmiles(X.rd_mols[mol_idx]))
-        res["QED"] += props.qed(pmol)
-        res["penlog"] += props.penalized_logp(pmol)
+        # res["QED"] += props.qed(pmol)
+        # res["penlog"] += props.penalized_logp(pmol)
 
     # return unaveraged dict
     return res

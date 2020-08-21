@@ -35,6 +35,8 @@ class MolOptDataset(Dataset):
                     else:
                         assert len(smiles) == 1
                         self.data.append(smiles[0])
+                if len(self.data) == 6:
+                    break
 
         if self.pairs:
             self.initial, self.optim = zip(*self.data)

@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 import sys
 # need the path to otgnn repo
 sys.path.append(os.path.join(os.getcwd(), "otgnn")) 
@@ -58,12 +59,14 @@ def initialize_model(init_model_name, model_class, args):
         ))
     return molopt, prev_epoch
 
-
 def main(args = None, train_data_loader = None, val_data_loader = None):
     if args is None:
         args = get_args()
         args.output_dir = "mol_opt/output"
-        args.logs = "mol_opt/logs"
+        args.tb_logs_dir = "mol_opt/logs"
+
+    Path(args.output_dir).mkdir(parents=True, exist_ok=True)
+    Path(args.tb_logs_dir).mkdir(parents=True, exist_ok=True)
 
     # if model is not created yet, then create a new one
     prev_epoch = -1 
@@ -76,13 +79,15 @@ def main(args = None, train_data_loader = None, val_data_loader = None):
     # the data is from Wengong's repo
     datapath = "iclr19-graph2graph/data/qed"
     if train_data_loader is None:
-        train_data_loader = get_loader(datapath, "train_pairs", 36, True)
-    if val_data_loader is None:
-        val_data_loader = get_loader(datapath, "val", 36, True)
+        train_data_loader = get_loader(datapath, "train", 36, True)
+    if val_data_loader is None or not args.one_batch_train:
+        val_data_loader = get_loader(datapath, "valid", 36, True)
 
     # create your optimizer
     molopt_module_list = torch.nn.ModuleList([molopt, molopt_decoder])
-    optimizer = torch.optim.Adam(molopt_module_list.parameters(), lr=0.01)
+    # optimizer = torch.optiG.RMSprop(molopt_module_list.parameters(), lr=0.004)
+    optimizer = torch.optim.AdamW(molopt_module_list.parameters(), lr=0.007,
+        amsgrad = True, weight_decay= 2e-2)
 
     tb_writer = SummaryWriter(logdir = args.tb_logs_dir)
     metrics = MolMetrics(SYMBOLS, FORMAL_CHARGES, BOND_TYPES, False)
@@ -97,8 +102,9 @@ def main(args = None, train_data_loader = None, val_data_loader = None):
                 args, tb_writer, metrics, pen_loss, epoch)
 
         # compute the validation loss as well, at the end of the epoch?
-        run_func(molopt, molopt_decoder, optimizer, val_data_loader, "val", args, 
-                tb_writer, metrics, pen_loss, epoch)
+        if not args.one_batch_train:
+            run_func(molopt, molopt_decoder, optimizer, val_data_loader, "val", args, 
+                    tb_writer, metrics, pen_loss, epoch)
 
         end = time.time()
         print("Epoch duration:", end - start)
@@ -147,10 +153,12 @@ def run_func(mol_opt, mol_opt_decoder, optim, data_loader, data_type, args,
         yhat_logits = mol_opt_decoder.forward(x_embedding, X, Y)
         yhat_labels = mol_opt_decoder.discretize(*yhat_logits)
         pred_pack = (yhat_labels, yhat_logits, Y.scope), Y
-        model_loss = fgw_loss(*pred_pack)
         con_loss, val_loss, eul_loss = pen_loss(*pred_pack, epoch_idx)
+        model_loss = fgw_loss(*pred_pack, tau = pen_loss.tau)
+        # model_loss = fgw_loss(*pred_pack)
 
-        loss = model_loss + con_loss + val_loss + eul_loss
+        loss = model_loss + pen_loss.conn_lambda * con_loss + \
+            pen_loss.valency_lambda * val_loss + pen_loss.euler_lambda * eul_loss
 
         # add stat
         n_data = len(X.mols)
@@ -171,7 +179,8 @@ def run_func(mol_opt, mol_opt_decoder, optim, data_loader, data_type, args,
             loss.backward()
             optim.step()    # Does the update
 
-        if (idx_batch == 0 and not is_train) or (idx_batch == 1000 and is_train): 
+        if ((idx_batch == 0 and not is_train) or (idx_batch == 1000 and is_train))\
+                and not args.one_batch_train: 
             # measure
             target = Y.get_graph_outputs()
             res = metrics.measure_batch(pred_pack[0], target)
@@ -187,8 +196,12 @@ def run_func(mol_opt, mol_opt_decoder, optim, data_loader, data_type, args,
             mol_drawer.visualize_batch(pred_pack[0], target_smiles, epoch_idx, initial_smiles,
                 text="{}-{}-".format(args.init_model, data_type))
         
-        if idx_batch % 400 == 0:
+        if idx_batch % 400 == 0 and not args.one_batch_train:
             stats_tracker.print_stats("idx_batch={}".format(idx_batch))
+        
+        # train on the first batch only
+        if args.one_batch_train:
+            break
 
     stats_tracker.print_stats("Epoch {}, {}".format(epoch_idx, data_type))
     log_tensorboard(tb_writer, stats_tracker.get_stats(), args.init_model, epoch_idx)

@@ -31,16 +31,19 @@ class MolOpt(nn.Module):
         # for the optimizer part
         if self.args.model_type == "transformer":
             self.transformer = make_model(args)
-        if self.args.model_type == "ffn":
+        if self.args.model_type == "pointwise":
             self.opt0 = nn.Linear(self.args.pc_hidden, self.args.n_hidden).to(device = args.device)
             self.opt1 = nn.Linear(self.args.n_hidden, self.args.pc_hidden).to(device = args.device)
+        if self.args.model_type == "ffn":
+            self.opt0 = nn.Linear(self.Nref * self.args.pc_hidden, self.Nref * self.args.n_hidden).to(device = args.device)
+            self.opt1 = nn.Linear(self.Nref * self.args.n_hidden, self.Nref * self.args.pc_hidden).to(device = args.device)
 
     def encode(self, batch):
         # get GCN embedding
         embedding = self.GCN(batch)[0]
         if self.args.model_type == "ffn" or self.args.model_type == "transformer":
             return self.project(embedding, batch)
-        elif self.args.model_type == "slot":
+        elif self.args.model_type == "slot" or self.args.model_type == "pointwise":
             return embedding
 
     def project(self, embedding, batch):
@@ -58,8 +61,12 @@ class MolOpt(nn.Module):
         return tg_embedding
 
     def optimize(self, x_embedding, x_batch):
-        if self.args.model_type == "ffn":
+        if self.args.model_type == "pointwise":
             return self.opt1(F.leaky_relu(self.opt0(x_embedding)))
+        if self.args.model_type == "ffn":
+            x_embedding_view = x_embedding.view(-1, self.Nref * self.args.pc_hidden)
+            yhat_embedding = self.opt1(F.leaky_relu(self.opt0(x_embedding_view)))
+            return yhat_embedding.view(-1, self.args.pc_hidden)
         elif self.args.model_type == "transformer":
             return self.transformer(x_embedding, None)
         elif self.args.model_type == "slot":

@@ -29,14 +29,13 @@ class MolOptDecoder(nn.Module):
         if self.args.model_type == "ffn" or args.model_type == "transformer":
             self.Nref = self.args.dim_tangent_space
 
-
         # TODO: Make a ModuleDict from feature to layers
         self.fc1_SYMBOLS = nn.Linear(self.args.pc_hidden, self.args.pred_hidden).to(device = args.device)
         self.fc2_SYMBOLS = nn.Linear(self.args.pred_hidden, n_SYMBOLS).to(device = args.device)
         self.fc1_CHARGES = nn.Linear(self.args.pc_hidden, self.args.pred_hidden).to(device = args.device)
         self.fc2_CHARGES = nn.Linear(self.args.pred_hidden, n_FORMAL_CHARGES).to(device = args.device)
-        self.fc1_BONDS = nn.Linear(self.args.pc_hidden + self.args.pc_hidden, self.args.pred_hidden).to(device = args.device) # input latent representation of both atoms combined
-        self.fc2_BONDS = nn.Linear(self.args.pred_hidden, n_BOND_TYPES).to(device = args.device)
+        self.fc1_BONDS = nn.Linear(2 * self.args.pc_hidden, 2 * self.args.pred_hidden).to(device = args.device) # input latent representation of both atoms combined
+        self.fc2_BONDS = nn.Linear(2 * self.args.pred_hidden, n_BOND_TYPES).to(device = args.device)
 
     def forward(self, x_embedding, x_batch, y_batch):
         """Predict symbols, charges, bonds logits independently"""
@@ -48,6 +47,12 @@ class MolOptDecoder(nn.Module):
             _, ley = y_batch.scope[idx]
 
             # cheating a bit here, by looking at what # of atoms should be
+            if self.args.model_type == "pointwise":
+                if lex != ley:
+                    raise RuntimeError("{}!={}, which is required for pointwise optimization".\
+                        format(lex, ley))
+                x_narrow = x_embedding.narrow(0, stx, lex).unsqueeze(0)
+                yhat_narrow = x_narrow
             if self.args.model_type == "slot":
                 x_narrow = x_embedding.narrow(0, stx, lex).unsqueeze(0)
                 yhat_narrow = self.slot_att(x_narrow, num_slots = ley)
@@ -75,9 +80,12 @@ class MolOptDecoder(nn.Module):
 
         return symbols_logits, charges_logits, bonds_logits
 
-    def discretize(self, symbols_logits, charges_logits, bonds_logits):
+    def discretize(self, symbols_logits, charges_logits, bonds_logits, tau = 1):
         # discretize by taking logit argmax
-        symbols_labels = torch.argmax(symbols_logits, dim=1)
-        charges_labels = torch.argmax(charges_logits, dim=1)
-        bonds_labels = torch.argmax(bonds_logits, dim=1)
+        # symbols_labels = torch.argmax(symbols_logits, dim=1)
+        # charges_labels = torch.argmax(charges_logits, dim=1)
+        # bonds_labels = torch.argmax(bonds_logits, dim=1)
+        symbols_labels = torch.argmax(F.gumbel_softmax(symbols_logits, dim=1, tau=tau), dim = 1)
+        charges_labels = torch.argmax(F.gumbel_softmax(charges_logits, dim=1, tau=tau), dim = 1)
+        bonds_labels = torch.argmax(F.gumbel_softmax(bonds_logits, dim=1, tau=tau), dim = 1)
         return symbols_labels, charges_labels, bonds_labels

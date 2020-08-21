@@ -6,6 +6,8 @@ import ot
 from otgnn.models import fused_gw_torch, compute_ot
 from otgnn.graph import SYMBOLS, FORMAL_CHARGES, BOND_TYPES, get_bt_index
 
+import torch.nn.functional as F
+
 def encode_target(y_batch, device = 'cpu'):
     # get encoding of symbols
     symbols_len = sum([x[1] for x in y_batch.scope])
@@ -42,12 +44,15 @@ class FGW:
         self.include_charge = include_charge
         self.__name__ = 'FGW'
 
-    def __call__(self, prediction, target_batch):
+    def __call__(self, prediction, target_batch, tau = 1):
         # Unpack inputs
         labels, logits, scope = prediction
         # symbols_labels, charges_labels, bonds_labels = labels
         symbols_logits, charges_logits, bonds_logits = logits
-        symbols_nll, charges_nll, bonds_nll = -nn.LogSoftmax(dim=1)(symbols_logits), -nn.LogSoftmax(dim=1)(charges_logits), -nn.LogSoftmax(dim=1)(bonds_logits)
+        symbols_nll, charges_nll, bonds_nll = -nn.LogSoftmax(dim=1)(symbols_logits/tau),\
+             -nn.LogSoftmax(dim=1)(charges_logits/tau), -nn.LogSoftmax(dim=1)(bonds_logits/tau)
+        # symbols_nll, charges_nll, bonds_nll = F.gumbel_softmax(tau = tau, dim=1, logits = symbols_logits), \
+        #     F.gumbel_softmax(tau=tau,dim=1,logits=charges_logits), F.gumbel_softmax(tau=tau,dim=1, logits = bonds_logits)
         device = symbols_logits.device
         # target[which mol][which feature] -> n_atoms/n_bonds x len(feature)
 
