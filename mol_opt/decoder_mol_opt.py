@@ -80,11 +80,15 @@ class MolOptDecoder(nn.Module):
 
         return symbols_logits, charges_logits, bonds_logits
 
+    def discretize_argmax(self, symbols_logits, charges_logits, bonds_logits, tau = 1):
+        # discretize by taking logit argmax
+        symbols_labels = torch.argmax(symbols_logits, dim=1)
+        charges_labels = torch.argmax(charges_logits, dim=1)
+        bonds_labels = torch.argmax(bonds_logits, dim=1)
+        return symbols_labels, charges_labels, bonds_labels
+
     def discretize(self, symbols_logits, charges_logits, bonds_logits, tau = 1):
         # discretize by taking logit argmax
-        # symbols_labels = torch.argmax(symbols_logits, dim=1)
-        # charges_labels = torch.argmax(charges_logits, dim=1)
-        # bonds_labels = torch.argmax(bonds_logits, dim=1)
         symbols_labels = torch.argmax(F.gumbel_softmax(symbols_logits, dim=1, tau=tau), dim = 1)
         charges_labels = torch.argmax(F.gumbel_softmax(charges_logits, dim=1, tau=tau), dim = 1)
         bonds_labels = torch.argmax(F.gumbel_softmax(bonds_logits, dim=1, tau=tau), dim = 1)

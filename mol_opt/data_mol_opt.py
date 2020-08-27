@@ -35,7 +35,7 @@ class MolOptDataset(Dataset):
                     else:
                         assert len(smiles) == 1
                         self.data.append(smiles[0])
-                if len(self.data) == 6:
+                if len(self.data) == 50:
                     break
 
         if self.pairs:

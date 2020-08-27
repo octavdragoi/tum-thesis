@@ -4,6 +4,8 @@ import sys
 # need the path to otgnn repo
 sys.path.append(os.path.join(os.getcwd(), "otgnn")) 
 sys.path.append(os.path.join(os.getcwd(), "molgen")) 
+sys.path.append(os.path.join(os.getcwd(), "RAdam")) 
+sys.path.append(os.path.join(os.getcwd(), "RangerDeepLearningOptimizer")) 
 
 from otgnn.models import GCN
 from otgnn.graph import MolGraph
@@ -22,6 +24,10 @@ from molgen.metrics.Penalty import Penalty
 from molgen.metrics.mol_metrics import MolMetrics
 from molgen.dataloading.mol_drawer import MolDrawer
 
+from RAdam.radam import RAdam
+from RangerDeepLearningOptimizer.ranger import Ranger
+from RangerDeepLearningOptimizer.ranger import RangerVA
+
 from rdkit import Chem
 
 from tensorboardX import SummaryWriter
@@ -35,6 +41,9 @@ ft = {
     "FORMAL_CHARGES" : FORMAL_CHARGES
 }
 
+def format_name(model_name, epoch):
+    return "model_{}_{}".format(model_name, epoch)
+
 def get_latest_model(model_name, outdir):
     split_names = [x.split("_") for x in os.listdir(outdir)]
     split_names = [[x[0], "_".join(x[1:-1]), x[-1]] for x in split_names]
@@ -42,22 +51,58 @@ def get_latest_model(model_name, outdir):
         max_epoch = max([int(x[2]) for x in split_names if x[0] == "model" and 
                             x[1] == model_name])
     except ValueError:
-        print ("No model {} found in {}! Starting from scratch.".format(model_name, outdir))
         return None, 0
-    return "{}_{}_{}".format("model", model_name, max_epoch), max_epoch
+    return format_name(model_name, max_epoch), max_epoch
 
-def initialize_model(init_model_name, model_class, args):
-    model_name, prev_epoch = get_latest_model(init_model_name, args.output_dir)
-    if model_name is not None:
-        molopt, _ = load_model(os.path.join(args.output_dir, model_name), 
-            model_class, args.device)
+def save_checkpoint(molopt, molopt_decoder, optimizer, scheduler, epoch, args, outfile):
+    checkpoint = {
+        'epoch': epoch,
+        'args': args,
+        'molopt': molopt.state_dict(),
+        'molopt_decoder': molopt_decoder.state_dict(),
+        'optimizer': optimizer.state_dict(),
+        'scheduler': scheduler.state_dict() if scheduler is not None else None
+    }
+    torch.save(checkpoint, outfile)
+
+def load_checkpoint(infile):
+    checkpoint = torch.load(infile)
+    args = checkpoint['args']
+    molopt, molopt_decoder, optimizer, scheduler = initialize_models(args)
+    molopt.load_state_dict(checkpoint['molopt'])
+    molopt_decoder.load_state_dict(checkpoint['molopt_decoder'])
+    optimizer.load_state_dict(checkpoint['optimizer'])
+    if scheduler is not None and checkpoint['scheduler'] is not None:
+        scheduler.load_state_dict(checkpoint['scheduler'])
     else:
-        molopt = model_class(args).to(device = args.device)
-    if molopt.args.model_type != args.model_type:
-        raise RuntimeError("Loaded model is {}, but configured model is {}.".format(
-            molopt.args.model_type, args.model_type
-        ))
-    return molopt, prev_epoch
+        scheduler = None
+    return molopt, molopt_decoder, optimizer, scheduler, checkpoint['args'], checkpoint['epoch']
+
+def initialize_models(args):
+    molopt = MolOpt(args).to(device = args.device)
+    molopt_decoder = MolOptDecoder(args).to(device = args.device)
+    molopt_module_list = torch.nn.ModuleList([molopt, molopt_decoder])
+    # create your optimizer
+    # optimizer = torch.optiG.RMSprop(molopt_module_list.parameters(), lr=0.004)
+    optimizer = torch.optim.Adam(molopt_module_list.parameters(), lr=0.004,
+        amsgrad = False, weight_decay=0)
+    # optimizer = torch.optim.AdamW(molopt_module_list.parameters(), lr=0.004,
+    #     amsgrad = False, weight_decay= 0)
+    # optimizer = torch.optim.SGD(molopt_module_list.parameters(), lr=0.004,
+    #     momentum = 0.1, dampening = 0.1, nesterov = True)
+    # optimizer = RAdam(molopt_module_list.parameters(), lr=0.004)
+    # optimizer = Ranger(molopt_module_list.parameters(), lr=0.001, N_sma_threshhold=4, use_gc = False)
+    # optimizer = RangerVA(molopt_module_list.parameters(), lr=0.007, k=10,n_sma_threshhold=4)
+
+    # scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size = 500, gamma = 0.3)
+    # lmbda = lambda epoch: 1.0 if epoch < 1300 else 0.2
+    # scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda = lmbda)
+    # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', 
+    #     factor = 0.5)
+    scheduler = None
+
+    return molopt, molopt_decoder, optimizer, scheduler
+
 
 def main(args = None, train_data_loader = None, val_data_loader = None):
     if args is None:
@@ -70,24 +115,23 @@ def main(args = None, train_data_loader = None, val_data_loader = None):
 
     # if model is not created yet, then create a new one
     prev_epoch = -1 
-    # preload previously trained model, if configured
-    # this part loads the encoder model
-    molopt, prev_epoch = initialize_model(args.init_model, MolOpt, args)
-    # load the decoder model
-    molopt_decoder, prev_epoch = initialize_model(args.init_decoder_model, MolOptDecoder, args)
+
+    model_name, prev_epoch = get_latest_model(args.init_model, args.output_dir)
+    if model_name is not None:
+        infile = os.path.join(args.output_dir, format_name(args.init_model, prev_epoch))
+        print ("Found previous model {}, epoch {}. Overwriting args.".format(infile, prev_epoch))
+        molopt, molopt_decoder, optimizer, scheduler, _, prev_epoch = load_checkpoint(infile)
+    else:
+        print ("No model {} found in {}! Starting from scratch.".format(args.init_model, args.output_dir))
+        molopt, molopt_decoder, optimizer, scheduler = initialize_models(args)
+
 
     # the data is from Wengong's repo
     datapath = "iclr19-graph2graph/data/qed"
     if train_data_loader is None:
-        train_data_loader = get_loader(datapath, "train", 36, True)
+        train_data_loader = get_loader(datapath, "train", args.batch_size, True)
     if val_data_loader is None or not args.one_batch_train:
-        val_data_loader = get_loader(datapath, "valid", 36, True)
-
-    # create your optimizer
-    molopt_module_list = torch.nn.ModuleList([molopt, molopt_decoder])
-    # optimizer = torch.optiG.RMSprop(molopt_module_list.parameters(), lr=0.004)
-    optimizer = torch.optim.AdamW(molopt_module_list.parameters(), lr=0.007,
-        amsgrad = True, weight_decay= 2e-2)
+        val_data_loader = get_loader(datapath, "valid", args.batch_size, True)
 
     tb_writer = SummaryWriter(logdir = args.tb_logs_dir)
     metrics = MolMetrics(SYMBOLS, FORMAL_CHARGES, BOND_TYPES, False)
@@ -98,27 +142,27 @@ def main(args = None, train_data_loader = None, val_data_loader = None):
         print ("Epoch:", epoch)
 
         # run the training procedure
-        run_func(molopt, molopt_decoder, optimizer, train_data_loader, "train", 
+        run_func(molopt, molopt_decoder, optimizer, scheduler, train_data_loader, "train", 
                 args, tb_writer, metrics, pen_loss, epoch)
 
         # compute the validation loss as well, at the end of the epoch?
         if not args.one_batch_train:
-            run_func(molopt, molopt_decoder, optimizer, val_data_loader, "val", args, 
+            run_func(molopt, molopt_decoder, optimizer, scheduler, val_data_loader, "val", args, 
                     tb_writer, metrics, pen_loss, epoch)
 
         end = time.time()
         print("Epoch duration:", end - start)
 
         # save your progress along the way
-        save_model(molopt, args, args.output_dir, 
-                "{}_{}".format(args.init_model, epoch))
-        save_model(molopt_decoder, args, args.output_dir, 
-                "{}_{}".format(args.init_decoder_model, epoch))
+        if epoch % 1 == 0:
+            outfile = os.path.join(args.output_dir, format_name(args.init_model, epoch))
+            print (outfile)
+            save_checkpoint(molopt, molopt_decoder, optimizer, scheduler, epoch, args, outfile)
     
     return molopt, molopt_decoder
 
 
-def run_func(mol_opt, mol_opt_decoder, optim, data_loader, data_type, args, 
+def run_func(mol_opt, mol_opt_decoder, optim, scheduler, data_loader, data_type, args, 
         tb_writer, metrics, pen_loss, epoch_idx):
     """ 
     Function that trains the GCN embeddings.
@@ -151,10 +195,10 @@ def run_func(mol_opt, mol_opt_decoder, optim, data_loader, data_type, args,
 
         x_embedding = mol_opt.forward(X)
         yhat_logits = mol_opt_decoder.forward(x_embedding, X, Y)
-        yhat_labels = mol_opt_decoder.discretize(*yhat_logits)
+        yhat_labels = mol_opt_decoder.discretize_argmax(*yhat_logits)
         pred_pack = (yhat_labels, yhat_logits, Y.scope), Y
         con_loss, val_loss, eul_loss = pen_loss(*pred_pack, epoch_idx)
-        model_loss = fgw_loss(*pred_pack, tau = pen_loss.tau)
+        model_loss = fgw_loss(*pred_pack, tau = 1)
         # model_loss = fgw_loss(*pred_pack)
 
         loss = model_loss + pen_loss.conn_lambda * con_loss + \
@@ -178,6 +222,8 @@ def run_func(mol_opt, mol_opt_decoder, optim, data_loader, data_type, args,
         if is_train:
             loss.backward()
             optim.step()    # Does the update
+            if scheduler is not None:
+                scheduler.step()
 
         if ((idx_batch == 0 and not is_train) or (idx_batch == 1000 and is_train))\
                 and not args.one_batch_train: 

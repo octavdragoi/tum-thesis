@@ -35,7 +35,10 @@ def measure_task(X, pred_pack):
 
         res["similarity"] += props.similarity(pmol, Chem.MolToSmiles(X.rd_mols[mol_idx]))
         # res["QED"] += props.qed(pmol)
-        # res["penlog"] += props.penalized_logp(pmol)
+        try:
+            res["penlog"] += props.penalized_logp(pmol)
+        except Exception as e:
+            print ("QED failed", e)
 
     # return unaveraged dict
     return res

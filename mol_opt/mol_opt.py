@@ -23,8 +23,7 @@ class MolOpt(nn.Module):
 
         # for the projection. ffn and transformer use this
         if self.args.model_type == "ffn" or self.args.model_type == "transformer":
-            self.ref = Variable(torch.randn(self.args.dim_tangent_space, self.args.pc_hidden, device = args.device),
-                    requires_grad=True)
+            self.ref = nn.parameter.Parameter(torch.randn(self.args.dim_tangent_space, self.args.pc_hidden, device = args.device))
             self.Href = np.ones(self.args.dim_tangent_space)/self.args.dim_tangent_space
             self.Nref = self.args.dim_tangent_space
 

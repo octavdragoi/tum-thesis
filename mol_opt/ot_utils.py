@@ -150,7 +150,7 @@ def compute_barycenter(pc_X, b_size, bary_pc_gain=1, num_iters=5):
     device = pc_X.device
 
     # Initialize barycenter: [b_size, pc_hidden]
-    # torch.manual_seed(69)
+    torch.manual_seed(69)
     b_X = torch.empty([b_size, pc_hidden], device=device)
     nn.init.xavier_normal_(b_X, gain=bary_pc_gain)
     b_H = np.ones([b_size]) / b_size
@@ -191,4 +191,10 @@ def compute_barycenter(pc_X, b_size, bary_pc_gain=1, num_iters=5):
     if len(b_X_list) == 0:
         print(W_lambda)
     b_X_new = b_size * torch.sum(torch.stack(b_X_list), dim=0)
+    
+    # stupid torch bug
+    try:
+        torch.random.seed()
+    except Exception as e:
+        pass
     return b_X_new

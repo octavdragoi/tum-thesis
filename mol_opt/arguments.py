@@ -22,9 +22,9 @@ def get_args():
                     help='size of batch')
 
     # Prototype Params
-    parser.add_argument('-pred_hidden', type=int, default=100,
+    parser.add_argument('-pred_hidden', type=int, default=150,
                         help='Hidden dim for symbol prediction')
-    parser.add_argument('-pc_hidden', type=int, default=70,
+    parser.add_argument('-pc_hidden', type=int, default=100,
                         help='Hidden dim for point clouds, different from GCN hidden dim')
     parser.add_argument('-ffn_activation', type=str, choices=['ReLU', 'LeakyReLU'],
                         default='LeakyReLU')
@@ -39,7 +39,7 @@ def get_args():
     # GCN Params
     parser.add_argument('-n_layers', type=int, default=5,
                         help='Number of layers in model')
-    parser.add_argument('-n_hidden', type=int, default=100,
+    parser.add_argument('-n_hidden', type=int, default=250,
                         help='Size of hidden dimension for model')
     parser.add_argument('-n_ffn_hidden', type=int, default=100)
     parser.add_argument('-linear_out', action='store_true', default=False)
@@ -77,6 +77,11 @@ def get_args():
     parser.add_argument('-euler_lambda', type=float, default=0.3)
     parser.add_argument('-connectivity_hard', type=bool, default=False)
     parser.add_argument('-valency_hard', type=bool, default=False)
+    parser.add_argument('-scale_lambdas', action = "store_true")
+    parser.add_argument('-conn_penalty_function', type=str, default = 'logdet',
+        choices=['logdet', 'exp', 'capped_logdet', 'capped_logdet2', 'exp_laplacian'])
+    parser.add_argument('-penalty_gumbel', action = 'store_true')
+
 
     args = parser.parse_args()
     args.device = 'cuda:0' if args.cuda else 'cpu'
