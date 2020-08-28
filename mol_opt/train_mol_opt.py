@@ -217,6 +217,13 @@ def run_func(mol_opt, mol_opt_decoder, optim, scheduler, data_loader, data_type,
         measure_results = measure_task(X, pred_pack[0])
         for key in measure_results:
             stats_tracker.add_stat("{}_{}".format(data_type, key), measure_results[key], n_data)
+        # measure
+        target = Y.get_graph_outputs()
+        res, res_vars = metrics.measure_batch(pred_pack[0], target)
+        for m in res:
+            stats_tracker.add_stat("{}_{}".format(data_type, m), res[m], 1)
+        for m in res_vars:
+            stats_tracker.add_var_stat("{}_{}".format(data_type, m), *res_vars[m])
 
         # in your training loop:
         if is_train:
@@ -227,11 +234,6 @@ def run_func(mol_opt, mol_opt_decoder, optim, scheduler, data_loader, data_type,
 
         if ((idx_batch == 0 and not is_train) or (idx_batch == 1000 and is_train))\
                 and not args.one_batch_train: 
-            # measure
-            target = Y.get_graph_outputs()
-            res = metrics.measure_batch(pred_pack[0], target)
-            for m in res:
-                stats_tracker.add_stat("{}_{}".format(data_type, m), res[m], 1)
 
             # draw
             target_smiles = [Chem.MolToSmiles(y) for y in Y.rd_mols]
