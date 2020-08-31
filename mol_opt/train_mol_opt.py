@@ -137,18 +137,30 @@ def main(args = None, train_data_loader = None, val_data_loader = None):
     metrics = MolMetrics(SYMBOLS, FORMAL_CHARGES, BOND_TYPES, False)
     pen_loss = Penalty(args, prev_epoch)
 
+    # write out hyperparameters
+    if prev_epoch == 0:
+        tb_writer.add_hparams(hparam_dict = vars(args), metric_dict = {})
+
     for epoch in range(prev_epoch + 1, prev_epoch + args.n_epochs + 1):
         start = time.time()
         print ("Epoch:", epoch)
 
         # run the training procedure
-        run_func(molopt, molopt_decoder, optimizer, scheduler, train_data_loader, "train", 
+        scalars1 = run_func(molopt, molopt_decoder, optimizer, scheduler, train_data_loader, "train", 
                 args, tb_writer, metrics, pen_loss, epoch)
 
         # compute the validation loss as well, at the end of the epoch?
         if not args.one_batch_train:
-            run_func(molopt, molopt_decoder, optimizer, scheduler, val_data_loader, "val", args, 
+            scalars2 = run_func(molopt, molopt_decoder, optimizer, scheduler, val_data_loader, "val", args, 
                     tb_writer, metrics, pen_loss, epoch)
+        else:
+            scalars2 = {}
+        
+        if epoch == 1:
+            scalars = {**scalars1, **scalars2}
+            print (scalars)
+            tb_writer.add_custom_scalars(scalars)
+            print ("Added custom scalars metadata")
 
         end = time.time()
         print("Epoch duration:", end - start)
@@ -180,7 +192,9 @@ def run_func(mol_opt, mol_opt_decoder, optim, scheduler, data_loader, data_type,
 
     fgw_loss = FGW(alpha = 0.5)
 
-    stats_tracker = StatsTracker()
+    losses_stats_tracker = StatsTracker()
+    measure_stats_tracker = StatsTracker()
+    metrics_stats_tracker = StatsTracker()
     mol_drawer = MolDrawer(tb_writer, SYMBOLS, BOND_TYPES, FORMAL_CHARGES)
     for idx_batch, i in enumerate(data_loader):
         if is_train:
@@ -197,8 +211,8 @@ def run_func(mol_opt, mol_opt_decoder, optim, scheduler, data_loader, data_type,
         yhat_logits = mol_opt_decoder.forward(x_embedding, X, Y)
         yhat_labels = mol_opt_decoder.discretize_argmax(*yhat_logits)
         pred_pack = (yhat_labels, yhat_logits, Y.scope), Y
-        con_loss, val_loss, eul_loss = pen_loss(*pred_pack, epoch_idx)
-        model_loss = fgw_loss(*pred_pack, tau = 1)
+        con_loss, val_loss, eul_loss = pen_loss(*pred_pack, epochidx = epoch_idx)
+        model_loss = fgw_loss(*pred_pack, tau = pen_loss.tau)
         # model_loss = fgw_loss(*pred_pack)
 
         loss = model_loss + pen_loss.conn_lambda * con_loss + \
@@ -206,24 +220,26 @@ def run_func(mol_opt, mol_opt_decoder, optim, scheduler, data_loader, data_type,
 
         # add stat
         n_data = len(X.mols)
-        stats_tracker.add_stat(data_type + '_fgw', model_loss.item(), n_data)
-        stats_tracker.add_stat(data_type + '_conn_penalty', con_loss.item(), n_data)
-        stats_tracker.add_stat(data_type + '_val_penalty', val_loss.item(), n_data)
-        stats_tracker.add_stat(data_type + '_euler_penalty', eul_loss.item(), n_data)
-        stats_tracker.add_stat(data_type + '_total', loss.item(), n_data)
+        losses_stats_tracker.add_stat('fgw', model_loss.item(), n_data)
+        losses_stats_tracker.add_stat('conn_penalty', con_loss.item(), n_data)
+        losses_stats_tracker.add_stat('val_penalty', val_loss.item(), n_data)
+        losses_stats_tracker.add_stat('euler_penalty', eul_loss.item(), n_data)
+        losses_stats_tracker.add_stat('total', loss.item(), n_data)
 
         # add metric stats
         # we might want to do this only for the validation set
         measure_results = measure_task(X, pred_pack[0])
         for key in measure_results:
-            stats_tracker.add_stat("{}_{}".format(data_type, key), measure_results[key], n_data)
+            measure_stats_tracker.add_stat(key, measure_results[key], n_data)
         # measure
         target = Y.get_graph_outputs()
         res, res_vars = metrics.measure_batch(pred_pack[0], target)
         for m in res:
-            stats_tracker.add_stat("{}_{}".format(data_type, m), res[m], 1)
+            # quick and dirty hack for averaging
+            n_data_curr = n_data if "degree" in m else 1
+            metrics_stats_tracker.add_stat(m, res[m], n_data_curr)
         for m in res_vars:
-            stats_tracker.add_var_stat("{}_{}".format(data_type, m), *res_vars[m])
+            metrics_stats_tracker.add_var_stat(m, *res_vars[m])
 
         # in your training loop:
         if is_train:
@@ -245,14 +261,29 @@ def run_func(mol_opt, mol_opt_decoder, optim, scheduler, data_loader, data_type,
                 text="{}-{}-".format(args.init_model, data_type))
         
         if idx_batch % 400 == 0 and not args.one_batch_train:
-            stats_tracker.print_stats("idx_batch={}".format(idx_batch))
+            losses_stats_tracker.print_stats("Losses idx_batch={}".format(idx_batch))
+            measure_stats_tracker.print_stats("Measure idx_batch={}".format(idx_batch))
+            metrics_stats_tracker.print_stats("Metrics idx_batch={}".format(idx_batch))
         
         # train on the first batch only
         if args.one_batch_train:
             break
 
-    stats_tracker.print_stats("Epoch {}, {}".format(epoch_idx, data_type))
-    log_tensorboard(tb_writer, stats_tracker.get_stats(), args.init_model, epoch_idx)
+    # log penalty statistics
+    if is_train:
+        pen_stats = pen_loss.get_stats()
+        pen_loss.log()
+        log_tensorboard(tb_writer, (pen_stats, {}), data_type + "_penalty", epoch_idx)
+
+    losses_stats_tracker.print_stats("Losses Epoch {}, {}".format(epoch_idx, data_type))
+    measure_stats_tracker.print_stats("Measure Epoch {}, {}".format(epoch_idx, data_type))
+    metrics_stats_tracker.print_stats("Metrics Epoch {}, {}".format(epoch_idx, data_type))
+    scalars1 = log_tensorboard(tb_writer, losses_stats_tracker.get_stats(), data_type + "_losses", epoch_idx)
+    scalars2 = log_tensorboard(tb_writer, measure_stats_tracker.get_stats(), data_type + "_measure", epoch_idx)
+    scalars3 = log_tensorboard(tb_writer, metrics_stats_tracker.get_stats(), data_type + "_metrics", epoch_idx)
+
+    scalars = {data_type : {**scalars1, **scalars2, **scalars3}} if epoch_idx == 1 else None
+    return scalars
 
 if __name__ == "__main__":
     main()

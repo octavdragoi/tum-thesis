@@ -96,44 +96,6 @@ class FGW:
             bond_idx += num_atoms * num_atoms
         return loss
 
-class Penalty:
-    def __init__(self, conn_eps = 1e-6):
-        self.conn_eps = conn_eps
-        self.__name__ = "Penalty terms"
-
-    def conn_penalty(self, adjM):
-        N = adjM.shape[0]
-        device = adjM.device
-
-        # get Laplacian
-        L = torch.diag(torch.matmul(adjM, torch.ones(N, device = device))) - adjM
-        L_mod = L + torch.ones_like(L, device = device)/N
-
-        # calculate log dets
-        return (-torch.logdet(L_mod + self.conn_eps * torch.eye(N, device = device)))
-
-    def conn(self, prediction, target_batch):
-        # Unpack inputs
-        _, logits, scope = prediction
-        _, _, bonds_logits = logits
-        device = bonds_logits.device
-
-        # use the Gumbel softmax to get the actual edges to be predicted 
-        bonds_prob = 1-nn.functional.gumbel_softmax(logits = bonds_logits, hard = False, dim = 1)[:,-1]# probability of no edge
-        loss = torch.tensor(0., device=device) # reconstruction loss
-        bond_idx = 0
-        for _, num_atoms in scope:
-            # Metric cost matrix for nodes
-            pred_bonds = bonds_prob[bond_idx:bond_idx+num_atoms*num_atoms].view(num_atoms, num_atoms) # num_atoms^2 predictions for all the possible bonds
-
-            loss += self.conn_penalty(pred_bonds)
-            bond_idx += num_atoms * num_atoms
-        return loss
-
-    def __call__(self, prediction, target_batch):
-        return self.conn(prediction, target_batch)
-        
-
 def compute_barycenter(pc_X, b_size, bary_pc_gain=1, num_iters=5):
     '''
     Computes the barycenter given fixed lambda weights.
