@@ -36,6 +36,10 @@ class MolOpt(nn.Module):
         if self.args.model_type == "ffn":
             self.opt0 = nn.Linear(self.Nref * self.args.pc_hidden, self.Nref * self.args.n_hidden).to(device = args.device)
             self.opt1 = nn.Linear(self.Nref * self.args.n_hidden, self.Nref * self.args.pc_hidden).to(device = args.device)
+        if self.args.model_type == "molemb":
+            self.max_num_atoms = args.max_num_atoms
+            self.opt0 = nn.Linear(self.args.pc_hidden, self.args.n_hidden * self.max_num_atoms).to(device = args.device)
+            self.opt1 = nn.Linear(self.args.n_hidden * self.max_num_atoms, self.args.pc_hidden * self.max_num_atoms).to(device = args.device)
 
     def encode(self, batch):
         # get GCN embedding
@@ -44,6 +48,12 @@ class MolOpt(nn.Module):
             return self.project(embedding, batch)
         elif self.args.model_type == "slot" or self.args.model_type == "pointwise":
             return embedding
+        elif self.args.model_type == "molemb":
+            mol_embs = torch.empty((self.args.batch_size, self.args.pc_hidden), device = self.args.device)
+            for idx, (stx, lex) in enumerate(batch.scope):
+                narrow = embedding.narrow(0, stx, lex)
+                mol_embs[idx] = narrow.sum(axis = 0)
+            return mol_embs
 
     def project(self, embedding, batch):
         """ Project on the tangent space
@@ -62,7 +72,7 @@ class MolOpt(nn.Module):
     def optimize(self, x_embedding, x_batch):
         if self.args.model_type == "pointwise":
             return self.opt1(F.leaky_relu(self.opt0(x_embedding)))
-        if self.args.model_type == "ffn":
+        elif self.args.model_type == "ffn":
             x_embedding_view = x_embedding.view(-1, self.Nref * self.args.pc_hidden)
             yhat_embedding = self.opt1(F.leaky_relu(self.opt0(x_embedding_view)))
             return yhat_embedding.view(-1, self.args.pc_hidden)
@@ -70,6 +80,9 @@ class MolOpt(nn.Module):
             return self.transformer(x_embedding, None)
         elif self.args.model_type == "slot":
             return x_embedding
+        elif self.args.model_type == "molemb":
+            return self.opt1(F.leaky_relu(self.opt0(x_embedding))).view(self.args.batch_size, self.args.max_num_atoms, self.args.pc_hidden)
+        
 
     def forward(self, x_batch):
         x_embedding = self.encode(x_batch)

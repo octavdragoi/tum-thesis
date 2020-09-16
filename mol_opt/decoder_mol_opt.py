@@ -29,6 +29,9 @@ class MolOptDecoder(nn.Module):
         if self.args.model_type == "ffn" or args.model_type == "transformer":
             self.Nref = self.args.dim_tangent_space
 
+        if self.args.model_type == "molemb":
+            self.max_num_atoms = self.args.max_num_atoms
+
         # TODO: Make a ModuleDict from feature to layers
         self.fc1_SYMBOLS = nn.Linear(self.args.pc_hidden, self.args.pred_hidden).to(device = args.device)
         self.fc2_SYMBOLS = nn.Linear(self.args.pred_hidden, n_SYMBOLS).to(device = args.device)
@@ -51,14 +54,18 @@ class MolOptDecoder(nn.Module):
                 if lex != ley:
                     raise RuntimeError("{}!={}, which is required for pointwise optimization".\
                         format(lex, ley))
-                x_narrow = x_embedding.narrow(0, stx, lex).unsqueeze(0)
+                x_narrow = x_embedding[stx:stx+lex].unsqueeze(0)
                 yhat_narrow = x_narrow
             if self.args.model_type == "slot":
-                x_narrow = x_embedding.narrow(0, stx, lex).unsqueeze(0)
+                x_narrow = x_embedding[stx:stx+lex].unsqueeze(0)
                 yhat_narrow = self.slot_att(x_narrow, num_slots = ley)
             elif self.args.model_type == "ffn" or self.args.model_type == "transformer":
-                x_narrow = x_embedding.narrow(0, idx*self.Nref, self.Nref)
-                yhat_narrow = compute_barycenter(x_narrow, ley)
+                x_narrow = x_embedding[idx*self.Nref:(idx+1)*self.Nref]
+                yhat_narrow = compute_barycenter(x_narrow, ley).unsqueeze(0)
+            elif self.args.model_type == "molemb":
+                yhat_narrow = x_embedding[idx,:ley].unsqueeze(0)
+            
+            # print (yhat_narrow.shape)
 
             symbols_logits_mol = self.fc2_SYMBOLS(F.leaky_relu(self.fc1_SYMBOLS(yhat_narrow)))
             symbols_logits_mol = symbols_logits_mol.view(-1, n_SYMBOLS)
@@ -70,24 +77,29 @@ class MolOptDecoder(nn.Module):
 
             x1 = yhat_narrow.view(ley, 1, -1).repeat(1, ley, 1)
             x2 = yhat_narrow.view(1, ley, -1).repeat(ley, 1, 1)
+            # print(x1.shape)
+            # print(x2.shape)
             _bonds = torch.cat((x1, x2), dim = 2)
             bonds_logits_mol = self.fc2_BONDS(F.leaky_relu(self.fc1_BONDS(_bonds)))
             # add matrix with its transpose, to get a symmetric matrix 
             bonds_logits_mol = bonds_logits_mol.view(ley, ley, n_BOND_TYPES) 
             bonds_logits_mol = bonds_logits_mol + bonds_logits_mol.permute(1,0,2) 
+            # fix diagonal entries, always predict no bond on the diagonal
+            bonds_logits_mol.diagonal()[0:4] = -1e3 * torch.ones_like(bonds_logits_mol.diagonal()[0:4])
+            bonds_logits_mol.diagonal()[4] =  1e3 * torch.ones_like(bonds_logits_mol.diagonal()[4])
             bonds_logits_mol = bonds_logits_mol.view(-1, n_BOND_TYPES)
             bonds_logits = torch.cat((bonds_logits, bonds_logits_mol))
 
         return symbols_logits, charges_logits, bonds_logits
 
-    def discretize_argmax(self, symbols_logits, charges_logits, bonds_logits, tau = 1):
+    def discretize_argmax(self, symbols_logits, charges_logits, bonds_logits):
         # discretize by taking logit argmax
         symbols_labels = torch.argmax(symbols_logits, dim=1)
         charges_labels = torch.argmax(charges_logits, dim=1)
         bonds_labels = torch.argmax(bonds_logits, dim=1)
         return symbols_labels, charges_labels, bonds_labels
 
-    def discretize(self, symbols_logits, charges_logits, bonds_logits, tau = 1):
+    def discretize_gumbel(self, symbols_logits, charges_logits, bonds_logits, tau = 1):
         # discretize by taking logit argmax
         symbols_labels = torch.argmax(F.gumbel_softmax(symbols_logits, dim=1, tau=tau), dim = 1)
         charges_labels = torch.argmax(F.gumbel_softmax(charges_logits, dim=1, tau=tau), dim = 1)

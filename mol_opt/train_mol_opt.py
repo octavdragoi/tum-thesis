@@ -54,21 +54,33 @@ def get_latest_model(model_name, outdir):
         return None, 0
     return format_name(model_name, max_epoch), max_epoch
 
-def save_checkpoint(molopt, molopt_decoder, optimizer, scheduler, epoch, args, outfile):
+def cleanup_dir(outdir, lastepoch):
+    for fl in os.listdir(outdir):
+        ep = int(fl.split("_")[2])
+        ep_diff = lastepoch - ep
+        for modulo in [10, 100]:
+            if ep_diff > modulo and ep % modulo != 0:
+                try:
+                    os.remove(os.path.join(outdir, fl))
+                except FileNotFoundError:
+                    pass
+
+def save_checkpoint(molopt, molopt_decoder, optimizer, penalty, scheduler, epoch, args, outfile):
     checkpoint = {
         'epoch': epoch,
         'args': args,
         'molopt': molopt.state_dict(),
         'molopt_decoder': molopt_decoder.state_dict(),
         'optimizer': optimizer.state_dict(),
+        'penalty' : penalty.get_stats(),
         'scheduler': scheduler.state_dict() if scheduler is not None else None
     }
     torch.save(checkpoint, outfile)
 
-def load_checkpoint(infile):
+def load_checkpoint(infile, args = None):
     checkpoint = torch.load(infile)
     args = checkpoint['args']
-    molopt, molopt_decoder, optimizer, scheduler = initialize_models(args)
+    molopt, molopt_decoder, optimizer, penalty, scheduler = initialize_models(args)
     molopt.load_state_dict(checkpoint['molopt'])
     molopt_decoder.load_state_dict(checkpoint['molopt_decoder'])
     optimizer.load_state_dict(checkpoint['optimizer'])
@@ -76,7 +88,8 @@ def load_checkpoint(infile):
         scheduler.load_state_dict(checkpoint['scheduler'])
     else:
         scheduler = None
-    return molopt, molopt_decoder, optimizer, scheduler, checkpoint['args'], checkpoint['epoch']
+    penalty.load_stats(checkpoint['penalty'])
+    return molopt, molopt_decoder, optimizer, penalty, scheduler, checkpoint['args'], checkpoint['epoch']
 
 def initialize_models(args):
     molopt = MolOpt(args).to(device = args.device)
@@ -94,14 +107,17 @@ def initialize_models(args):
     # optimizer = Ranger(molopt_module_list.parameters(), lr=0.001, N_sma_threshhold=4, use_gc = False)
     # optimizer = RangerVA(molopt_module_list.parameters(), lr=0.007, k=10,n_sma_threshhold=4)
 
-    # scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size = 500, gamma = 0.3)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size = 100, gamma = 0.98)
+    # scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, np.arange(0,2000, 100), gamma = 0.9)
     # lmbda = lambda epoch: 1.0 if epoch < 1300 else 0.2
     # scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda = lmbda)
     # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', 
     #     factor = 0.5)
-    scheduler = None
+    # scheduler = None
+    penalty = Penalty(args)
+    # penalty = None
 
-    return molopt, molopt_decoder, optimizer, scheduler
+    return molopt, molopt_decoder, optimizer, penalty, scheduler
 
 
 def main(args = None, train_data_loader = None, val_data_loader = None):
@@ -120,10 +136,10 @@ def main(args = None, train_data_loader = None, val_data_loader = None):
     if model_name is not None:
         infile = os.path.join(args.output_dir, format_name(args.init_model, prev_epoch))
         print ("Found previous model {}, epoch {}. Overwriting args.".format(infile, prev_epoch))
-        molopt, molopt_decoder, optimizer, scheduler, _, prev_epoch = load_checkpoint(infile)
+        molopt, molopt_decoder, optimizer, pen_loss, scheduler, _, prev_epoch = load_checkpoint(infile)
     else:
         print ("No model {} found in {}! Starting from scratch.".format(args.init_model, args.output_dir))
-        molopt, molopt_decoder, optimizer, scheduler = initialize_models(args)
+        molopt, molopt_decoder, optimizer, pen_loss, scheduler = initialize_models(args)
 
 
     # the data is from Wengong's repo
@@ -135,7 +151,6 @@ def main(args = None, train_data_loader = None, val_data_loader = None):
 
     tb_writer = SummaryWriter(logdir = args.tb_logs_dir)
     metrics = MolMetrics(SYMBOLS, FORMAL_CHARGES, BOND_TYPES, False)
-    pen_loss = Penalty(args, prev_epoch)
 
     # write out hyperparameters
     if prev_epoch == 0:
@@ -166,10 +181,10 @@ def main(args = None, train_data_loader = None, val_data_loader = None):
         print("Epoch duration:", end - start)
 
         # save your progress along the way
-        if epoch % 1 == 0:
-            outfile = os.path.join(args.output_dir, format_name(args.init_model, epoch))
-            print (outfile)
-            save_checkpoint(molopt, molopt_decoder, optimizer, scheduler, epoch, args, outfile)
+        outfile = os.path.join(args.output_dir, format_name(args.init_model, epoch))
+        print (outfile)
+        save_checkpoint(molopt, molopt_decoder, optimizer, pen_loss, scheduler, epoch, args, outfile)
+        cleanup_dir(args.output_dir, epoch)
     
     return molopt, molopt_decoder
 
@@ -182,7 +197,8 @@ def run_func(mol_opt, mol_opt_decoder, optim, scheduler, data_loader, data_type,
     """
     is_train = data_type == 'train'
     if is_train:
-        pairs = True
+        # pairs = True
+        pairs = False
         mol_opt.train()
         mol_opt_decoder.train()
     else:
@@ -206,20 +222,28 @@ def run_func(mol_opt, mol_opt_decoder, optim, scheduler, data_loader, data_type,
         else:
             X = MolGraph(i)
             Y = X
+        n_data = len(X.mols)
 
         x_embedding = mol_opt.forward(X)
         yhat_logits = mol_opt_decoder.forward(x_embedding, X, Y)
-        yhat_labels = mol_opt_decoder.discretize_argmax(*yhat_logits)
+        if args.penalty_gumbel:
+            yhat_labels = mol_opt_decoder.discretize_gumbel(*yhat_logits, tau = pen_loss.tau)
+        else:
+            yhat_labels = mol_opt_decoder.discretize_argmax(*yhat_logits)
         pred_pack = (yhat_labels, yhat_logits, Y.scope), Y
+        # model_loss = fgw_loss(*pred_pack, tau = pen_loss.tau)
+        model_loss = fgw_loss(*pred_pack, tau = 1)
+        # compute the lambdas and losses, based on this fgw loss
         con_loss, val_loss, eul_loss = pen_loss(*pred_pack, epochidx = epoch_idx)
-        model_loss = fgw_loss(*pred_pack, tau = pen_loss.tau)
         # model_loss = fgw_loss(*pred_pack)
 
         loss = model_loss + pen_loss.conn_lambda * con_loss + \
             pen_loss.valency_lambda * val_loss + pen_loss.euler_lambda * eul_loss
+        pen_loss.compute_lambdas(epoch_idx, model_loss.item()/n_data, 
+            con_loss.item()/n_data, val_loss.item()/n_data, eul_loss.item()/n_data,
+            loss.item()/n_data)
 
         # add stat
-        n_data = len(X.mols)
         losses_stats_tracker.add_stat('fgw', model_loss.item(), n_data)
         losses_stats_tracker.add_stat('conn_penalty', con_loss.item(), n_data)
         losses_stats_tracker.add_stat('val_penalty', val_loss.item(), n_data)
@@ -278,7 +302,9 @@ def run_func(mol_opt, mol_opt_decoder, optim, scheduler, data_loader, data_type,
     losses_stats_tracker.print_stats("Losses Epoch {}, {}".format(epoch_idx, data_type))
     measure_stats_tracker.print_stats("Measure Epoch {}, {}".format(epoch_idx, data_type))
     metrics_stats_tracker.print_stats("Metrics Epoch {}, {}".format(epoch_idx, data_type))
+    print ("Logits", [x.abs().mean().item() for x in yhat_logits])
     scalars1 = log_tensorboard(tb_writer, losses_stats_tracker.get_stats(), data_type + "_losses", epoch_idx)
+    scalars1 = log_tensorboard(tb_writer, ({'learning_rate' : optim.param_groups[0]['lr']}, {}), data_type + "_penalty", epoch_idx)
     scalars2 = log_tensorboard(tb_writer, measure_stats_tracker.get_stats(), data_type + "_measure", epoch_idx)
     scalars3 = log_tensorboard(tb_writer, metrics_stats_tracker.get_stats(), data_type + "_metrics", epoch_idx)
 

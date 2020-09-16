@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+from torch.autograd import grad
 import numpy as np
 import ot
 # from .ot_modules import compute_cost_mat
@@ -44,15 +45,19 @@ class FGW:
         self.include_charge = include_charge
         self.__name__ = 'FGW'
 
+    def softmax_logits(self, logits, tau):
+        # logitsn = F.normalize(logits, p=1, dim = 1)
+        logitsn = logits
+        return -nn.LogSoftmax(dim=1)(logitsn)
+
     def __call__(self, prediction, target_batch, tau = 1):
         # Unpack inputs
-        labels, logits, scope = prediction
+        _, logits, scope = prediction
         # symbols_labels, charges_labels, bonds_labels = labels
         symbols_logits, charges_logits, bonds_logits = logits
-        symbols_nll, charges_nll, bonds_nll = -nn.LogSoftmax(dim=1)(symbols_logits/tau),\
-             -nn.LogSoftmax(dim=1)(charges_logits/tau), -nn.LogSoftmax(dim=1)(bonds_logits/tau)
-        # symbols_nll, charges_nll, bonds_nll = F.gumbel_softmax(tau = tau, dim=1, logits = symbols_logits), \
-        #     F.gumbel_softmax(tau=tau,dim=1,logits=charges_logits), F.gumbel_softmax(tau=tau,dim=1, logits = bonds_logits)
+        symbols_nll = self.softmax_logits(symbols_logits, tau)
+        # charges_nll = self.softmax_logits(charges_logits, tau)
+        bonds_nll = self.softmax_logits(bonds_logits, tau)
         device = symbols_logits.device
         # target[which mol][which feature] -> n_atoms/n_bonds x len(feature)
 
@@ -94,6 +99,8 @@ class FGW:
             )
             loss += atom_gw_dist + bond_gw_dist
             bond_idx += num_atoms * num_atoms
+        G = grad(loss, bonds_logits, retain_graph = True)[0]
+        print ("FGW", G.shape, G.abs().mean().item())
         return loss
 
 def compute_barycenter(pc_X, b_size, bary_pc_gain=1, num_iters=5):
