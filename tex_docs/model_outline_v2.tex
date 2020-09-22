@@ -42,23 +42,27 @@ Our model will employ the following components:
     \item A nonparametric \textbf{tangent space embedding} $\phi = \phi_{Z_0}$ taking a reference point cloud $Z_0\in \mathbb{R}^{N\times d}$. This function, described in \cite{kolouri2020wasserstein}, has the form:
     \[\phi : \mathscr{D}_2({\mathbb{R}^d}) \rightarrow \mathbb{R}^{N\times d}\]
     The main reason why we want to use this function is because it generates workable point cloud embeddings in a \textit{fixed size space}, where we can compute our optimization method. This fixes the problem of variable size embeddings, which are harder to parametrize in a neural network. It also allows the use of pointwise translations for optimizing point clouds with the same number of atoms/points.
-    \item A pseudoinverse \textbf{decoding function} $F\sim G^{-1}$.
-    \[F : \mathscr{D}_2({\mathbb{R}^d})\rightarrow \mathcal{G}\]
+    \item A \textbf{Transformer} neural network structure, that learns the molecule improvement within the tangent space.
+    \item A \textbf{decoding function} $F\sim G^{-1}$. This function discretizes the optimized tangent vector into a molecular graph $\hat{\mathcal{Y}}$.
 \end{itemize}
 
-\section{Training}
-Given a graph $\mathcal{X}$, the model should learn an improvement direction $\Delta(\mathcal{X})$. We define this direction as:
-\[\Delta(\mathcal{X}_i) = \phi(G(\mathcal{Y}_i))-\phi(G(\mathcal{X}_i)) \]
+\section{Training and Inference}
 
-In other words, we encode the graphs $\mathcal{X}_i, \mathcal{Y}_i$ using the GCN, and then project these encodings onto the tangent space at $Z_0$. The difference between these tangent space vectors contains the information on how to modify one vector to obtain the other, and this is what the model should learn.
+Given the elements described above, we compute the improved model $\hat{\mathcal{Y}}$ as:
+\[\hat{\mathcal{Y}} = F(\phi^{-1}(T(\phi(G(\mathcal{X}))))) \]
 
-The order of the embeddings within $\mathbb{R}^{N\times d}$ is induced by the order we set on $Z_0$, and should not affect the overall modeling process.
+We set the training loss to be the \textbf{Fused Gromov-Wasserstein}, adding also penalty terms for connectivity and degree constraints.
+
+\begin{equation}
+    \label{eq:loss}
+    L(\mathcal{X}, \mathcal{Y}) = FGW(\hat{\mathcal{Y}}, \mathcal{Y}) + \lambda_cC(\hat{\mathcal{Y}}) + \lambda_dD(\hat{\mathcal{Y}})
+\end{equation}
 
 \begin{figure}[h!t]
-    \label{fig:train}
+    \label{fig:outline}
     \begin{center}
-        \includegraphics[page=2,width=\textwidth, trim=0 40cm 0 0 ,clip,angle=0]{images/model_outline_train.png}
-        \caption{Training flow. Parametrize $\Delta(\mathcal{X}_i)$ in terms of $\mathcal{X}_i$. Only parametric step is the GCN $G$.}
+        \includegraphics[page=2,width=\textwidth, trim=0 32cm 0 0 ,clip,angle=0]{images/model_outline_v2.png}
+        \caption{Model flow. Compute the predicted graph $\hat{\mathcal{Y}}$, and then use the FGW loss to train the network.}
     \end{center}
 \end{figure}
 
@@ -80,34 +84,53 @@ and the embedding is calculated as:
 
 The function $\phi$ approximates the Wasserstein distance, i.e. $\phi(Z_i) - \phi(Z_0) = W_2(Z_i, Z_0)$ and $\phi(Z_i) - \phi(Z_j) \sim W_2(Z_i, Z_j)$. The quality of this approximation depends on $Z_0$, and therefore $Z_0$ should be picked in an appropriate manner to minimize the error. There is no theoretical bound on the quality of this approximation, though; we will need to check how well it works in practice for our dataset.
 
-\section{Inference}
-With the information from $\mathcal{X}$ and $\Delta(\mathcal{X})$, the model should be able to decode $\hat{\mathcal{Y}}$. We define the following:
+As long as the size of the tangent space is larger than the number of nodes of the initial graph, the function $\phi$ is \textbf{fully invertible}; thus, we pick $N$ large enough such that $\phi^{-1}$ is well-defined via simple algebraic matrix inversion.
 
-\[\hat{\mathcal{Y}_i} = F\left(\phi^{-1}\left(\Delta(\mathcal{X}_i) + \phi\left(G(\mathcal{X}_i)\right)\right)\right)\]
+\subsection{The Transformer}
 
-Referring to \cite{kolouri2020wasserstein}, $\phi$ is pseudoinvertible, therefore $\phi^{-1}$ should be reasonably well defined. The paper actually uses the inverse in one of their experiments with reasonable success, so it should be suitable for other use cases as well.
+This section is an implementation of the Transformer paper \cite{DBLP:journals/corr/VaswaniSPUJGKP17}. We believe that the attention mechanism should have a positive influence on the model performance, allowing some nodes to be transformed according to information from other nodes. The relative simplicity and speed of the model makes this model quite fast to train and run.
 
-\begin{figure}[h!t]
-    \label{fig:infer}
-    \begin{center}
-        \includegraphics[page=2,width=\textwidth, trim=0 40cm 0 0 ,clip,angle=0]{images/model_outline_infer.png}
-        \caption{Inference flow. Get the $\Delta(\mathcal{X}_i)$ vector from the trained model, add it to the current embedding and then decode.}
-    \end{center}
-\end{figure}
+The initial implementation of this step treats the transfomer as a black box, and modifies the tangent vector embedding $\phi(X) = \phi(G(\mathcal{X}))$ into another tangent vector $T(\phi(X))\in \mathbb{R}^{N\times d}$.
 
 \subsection{$F$ discretizer function}
 
-Given a point cloud embedding $Z$, we need a procedure that generates a molecular graph $\hat{Y}$ such that the embedding of $\hat{Y}$ through $G$ is as close as possible to $Z$. The most straightforward way to implement this is by maximizing the likelihood of individual embeddings of nodes and edges.
+One can project a tangent vector $y^t\in \mathbb{R}^{N\times d}$ down to a point cloud $Y\in \mathscr{D}_2(\mathbb{R}^d)$. From this embedded point cloud, the model should generate a set of vertices and edges between them.
 
-\[\log P(\hat{Y}|Z) \coloneqq \max_{T}\sum_{i=0}^{N}T_i P(\hat{y}_i = T_i | z_i) + \sum_{i,j=0}^{N} T_{ij}P(\hat{y}_{ij} = T_{ij} | z_i, z_j)\]
+We want to compute probabilities of node and edge labels, i.e. atom and bond types:
+\[P(t(i) = A), P(b(i,j) = A) \]
+where $t(i)$ is the type of atom $i$, $b(i,j)$ is the type of bond $j$, and $A$ is some type of atom or bond (with a little bit of notation abuse).
 
-This is a starting point, though. We will want to find a way to take into consideration methods of discretizing nodes and edges based on the whole point cloud, not just the individual embeddings.
+Our model uses feed forward networks to determine labels for the nodes and edges conditioned on the node embeddings. We assume that the node labels depend on the respective node embeddings independently, and edge labels depend on the corresponding pair of node embeddings, so we set up the feed forward networks accordingly.
+
+For bonds, we use a feed forward network taking in a pair of points, and for atoms, just the point embedding:
+\[P(b(i,j) = A | y_i, y_j)\quad P(t(i) = A| x_i), \forall i,j \]
+
+% For atoms, we do the following:
+% \[P(t(i)|y_i) = \sum_jP(t(i)|y_i,y_j)P(y_j|y_i),\quad \text{where } P(y_j|y_i) = \frac{e^{-\norm{y_i-y_j}/\sigma^2}}{\sum_k e^{-\norm{y_i-y_k}/\sigma^2}}\]
+
+We discretize the logits thus obtained using the Gumbel Softmax.
+
+\subsection{Penalty Terms}
+
+This section describes in detail the penalty terms mentioned in \ref{eq:loss}.
+
+\begin{itemize}
+    \item The \textbf{degree constraint} pushes the predicted degree of the nodes to be greater than 1, but smaller than the maximum valency corresponding to the predicted node label. We sample a molecule's node and edge labels using the Gumbel softmax, and then we compute the following expected degree for each node:
+    \[E(i) = \sum_{j\neq i}\sum_{B}\left(P(b(i,j) = B)d(B)\right) \]
+    where $d(B)$ is the number of edges a bond type implies (None implies 0, single implies 1, double implies 2, etc.)
+    We then compute the error term as:
+    \[D(\hat{\mathcal{Y}}) = \sum_{i}\left(\min(0, 1 - E(i)) + \min(0, E(i) - \left(\sum_{A} P(t(i) = A)v(A)\right) \right)\] 
+    where $v(A)$ is the maximum degree (valency) that an atom of type $A$ can have.
+    \item The \textbf{connectivity constraint}, based on the work \cite{2017connectedness}. In short, we sample the adjacency matrix $A$ using the Gumbel softmax, construct the Laplacian matrix $L=\mathbf{diag}(A1) - A$, and then impose the constraint that the matrix
+    \[L + \frac{1}{N}11^T  = \mathbf{diag}(A1) - A + \frac{1}{N}11^T\]
+    is positive definite. This is equivalent to asking that the graph is connected; proof is in the cited paper. Therefore, we define the following penalty term (for a small $\epsilon > 0$ for numerical stability reasons):
+    \[C(\hat{\mathcal{Y}}) = -\log\det\left(L + \left(\frac{1}{N} + \epsilon\right)11^T\right) \]
+\end{itemize}
 
 \section{Open Questions}
 \begin{itemize}
-    \item The theory around $\phi$ is scarce. How good is the approximation $\phi(X) - \phi(Y)\sim W_2(X,Y)$? How accurate is the pseudoinverse $\phi^{-1}$? Will they be good enough for our purposes?
-    \item How to write the decoder $F$? Pani and I have a few ideas, but nothing too clear for now.
-    \item How to encode the transition from $\mathcal{X}_i$ to $\mathcal{Y}_i$? The difference between tangent vectors is natural, but maybe we can do something fancier with those vectors.
+    \item Setting the parameters for the losses. Can we anneal the weights in such a way that we eventually get 100\% validity rates?
+    \item Finding the number of atoms in the predicted set. Right now we cheat and look ahead, taking a barycentric projection from the tangent vector to a point cloud with the appropriate number of atoms.
 \end{itemize}
 
 \subsection{Comments and Discussion}

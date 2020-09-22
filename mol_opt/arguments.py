@@ -80,12 +80,13 @@ def get_args():
     parser.add_argument('-conn_penalty_function', type=str, default = 'logdet',
         choices=['logdet', 'exp', 'capped_logdet', 'capped_logdet2', 'exp_laplacian'])
     parser.add_argument('-penalty_gumbel', action = 'store_true')
-    for pen in ['conn_lambda', 'valency_lambda', 'euler_lambda', 'tau']:
+    for pen in ['conn_lambda', 'valency_lambda', 'euler_lambda', 'rec_lambda', 'tau']:
         parser.add_argument('-{}_start'.format(pen), type=float, default=1)
         parser.add_argument('-{}_end'.format(pen), type=float, default=100)
         parser.add_argument('-{}_epochs_start'.format(pen), type=int, default=1)
         parser.add_argument('-{}_epochs_end'.format(pen), type=int, default=50)
         # parser.add_argument('-{}_lambda_rate'.format(pen), type=float, default=0.005)
+    parser.add_argument('-reconstruction_loss', action = 'store_true')
 
     args = parser.parse_args()
     args.device = 'cuda:0' if args.cuda else 'cpu'

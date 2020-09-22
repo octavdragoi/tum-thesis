@@ -36,7 +36,7 @@ def cleanup_dir(outdir, lastepoch):
                 except (FileNotFoundError, IsADirectoryError):
                     pass
 
-def save_checkpoint(molopt, molopt_decoder, optimizer, penalty, scheduler, epoch, args, outfile):
+def save_checkpoint(molopt, molopt_decoder, optimizer, penalty, recpen, scheduler, epoch, args, outfile):
     checkpoint = {
         'epoch': epoch,
         'args': args,
@@ -44,14 +44,20 @@ def save_checkpoint(molopt, molopt_decoder, optimizer, penalty, scheduler, epoch
         'molopt_decoder': molopt_decoder.state_dict(),
         'optimizer': optimizer.state_dict(),
         'penalty' : penalty.get_stats(),
+        'recpen' : recpen.state_dict(),
         'scheduler': scheduler.state_dict() if scheduler is not None else None
     }
     torch.save(checkpoint, outfile)
 
-def load_checkpoint(infile, init_fc, args = None):
-    checkpoint = torch.load(infile)
+def load_checkpoint(infile, init_fc, args = None, cpu = False):
+    if cpu:
+        checkpoint = torch.load(infile, map_location=torch.device('cpu'))
+    else:
+        checkpoint = torch.load(infile)
     args = checkpoint['args']
-    molopt, molopt_decoder, optimizer, penalty, scheduler = init_fc(args)
+    if cpu:
+        args.device = 'cpu'
+    molopt, molopt_decoder, optimizer, penalty, recpen, scheduler = init_fc(args)
     molopt.load_state_dict(checkpoint['molopt'])
     molopt_decoder.load_state_dict(checkpoint['molopt_decoder'])
     optimizer.load_state_dict(checkpoint['optimizer'])
@@ -60,7 +66,9 @@ def load_checkpoint(infile, init_fc, args = None):
     else:
         scheduler = None
     penalty.load_stats(checkpoint['penalty'])
-    return molopt, molopt_decoder, optimizer, penalty, scheduler, checkpoint['args'], checkpoint['epoch']
+    if 'recpen' in checkpoint:
+        recpen.load_state_dict(checkpoint['recpen'])
+    return molopt, molopt_decoder, optimizer, penalty, recpen, scheduler, checkpoint['args'], checkpoint['epoch']
 
 def save_data(path, X, pred_pack, losses, pen_stats, lr):
     # print (path, pred_pack, losses, pen_stats, lr)
@@ -172,9 +180,9 @@ def do_epoch(epochidx, outdir, tb_writer, metrics):
 
     return epochidx
 
-def main(outdir, logdir, prev_epoch = 1, flush_secs = 5):
+def main(outdir, logdir, prev_epoch = 1, flush_secs = 5, device = 'cuda:0'):
     tb_writer = SummaryWriter(logdir = logdir, flush_secs = flush_secs)
-    metrics = MolMetrics(SYMBOLS, FORMAL_CHARGES, BOND_TYPES, False)
+    metrics = MolMetrics(SYMBOLS, FORMAL_CHARGES, BOND_TYPES, False, device = device)
     curr_epoch = prev_epoch
 
     while 1:

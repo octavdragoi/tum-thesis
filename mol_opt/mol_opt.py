@@ -85,6 +85,6 @@ class MolOpt(nn.Module):
         
 
     def forward(self, x_batch):
-        x_embedding = self.encode(x_batch)
-        x_embedding = self.optimize(x_embedding, x_batch)
-        return x_embedding
+        x_encoding = self.encode(x_batch)
+        x_embedding = self.optimize(x_encoding, x_batch)
+        return x_encoding, x_embedding

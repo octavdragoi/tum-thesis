@@ -18,20 +18,17 @@ from mol_opt.arguments import get_args
 from mol_opt.mol_opt import MolOpt
 from mol_opt.decoder_mol_opt import MolOptDecoder
 from mol_opt.ot_utils import FGW 
-from mol_opt.task_metrics import measure_task
 from mol_opt.log_mol_opt import save_data, format_name, format_data_name, get_latest_model, cleanup_dir, save_checkpoint, load_checkpoint
 
-from molgen.metrics.Penalty import Penalty
+from molgen.metrics.Penalty import Penalty, RecPenalty
 from molgen.metrics.mol_metrics import MolMetrics
 from molgen.dataloading.mol_drawer import MolDrawer
 
-from RAdam.radam import RAdam
-from RangerDeepLearningOptimizer.ranger import Ranger
-from RangerDeepLearningOptimizer.ranger import RangerVA
+# from RAdam.radam import RAdam
+# from RangerDeepLearningOptimizer.ranger import Ranger
+# from RangerDeepLearningOptimizer.ranger import RangerVA
 
 from rdkit import Chem
-
-from tensorboardX import SummaryWriter
 
 import torch
 import time
@@ -68,7 +65,9 @@ def initialize_models(args):
     penalty = Penalty(args)
     # penalty = None
 
-    return molopt, molopt_decoder, optimizer, penalty, scheduler
+    recpenalty = RecPenalty(args)
+
+    return molopt, molopt_decoder, optimizer, penalty, recpenalty, scheduler
 
 def main(args = None, train_data_loader = None, val_data_loader = None):
     if args is None:
@@ -86,10 +85,10 @@ def main(args = None, train_data_loader = None, val_data_loader = None):
     if model_name is not None:
         infile = os.path.join(args.output_dir, format_name(args.init_model, prev_epoch))
         print ("Found previous model {}, epoch {}. Overwriting args.".format(infile, prev_epoch))
-        molopt, molopt_decoder, optimizer, pen_loss, scheduler, _, prev_epoch = load_checkpoint(infile, initialize_models)
+        molopt, molopt_decoder, optimizer, pen_loss, recpen_loss, scheduler, _, prev_epoch = load_checkpoint(infile, initialize_models)
     else:
         print ("No model {} found in {}! Starting from scratch.".format(args.init_model, args.output_dir))
-        molopt, molopt_decoder, optimizer, pen_loss, scheduler = initialize_models(args)
+        molopt, molopt_decoder, optimizer, pen_loss, recpen_loss, scheduler = initialize_models(args)
 
 
     # the data is from Wengong's repo
@@ -104,12 +103,12 @@ def main(args = None, train_data_loader = None, val_data_loader = None):
         Path(os.path.join(args.output_dir, format_data_name(args.init_model, epoch))).mkdir(parents=True, exist_ok=True)
         # run the training procedure
         run_func(molopt, molopt_decoder, optimizer, scheduler, train_data_loader, "train", 
-                args, pen_loss, epoch)
+                args, pen_loss, recpen_loss, epoch)
 
         # compute the validation loss as well, at the end of the epoch?
         if not args.one_batch_train and val_data_loader is not None:
             run_func(molopt, molopt_decoder, optimizer, scheduler, val_data_loader, "val", args, 
-                    pen_loss, epoch)
+                    pen_loss, recpen_loss, epoch)
 
         end = time.time()
         print("Epoch duration:", end - start)
@@ -117,7 +116,7 @@ def main(args = None, train_data_loader = None, val_data_loader = None):
         # save your progress along the way
         outfile = os.path.join(args.output_dir, format_name(args.init_model, epoch))
         print ("Saving model, do not interrupt...")
-        save_checkpoint(molopt, molopt_decoder, optimizer, pen_loss, scheduler, epoch, args, outfile)
+        save_checkpoint(molopt, molopt_decoder, optimizer, pen_loss, recpen_loss, scheduler, epoch, args, outfile)
         print ("Saved at", outfile)
         cleanup_dir(args.output_dir, epoch)
     
@@ -125,7 +124,7 @@ def main(args = None, train_data_loader = None, val_data_loader = None):
 
 
 def run_func(mol_opt, mol_opt_decoder, optim, scheduler, data_loader, data_type, args, 
-        pen_loss, epoch_idx):
+        pen_loss, recpen_loss, epoch_idx):
     """ 
     Function that trains the GCN embeddings.
     Also used for validation purposes.
@@ -156,7 +155,7 @@ def run_func(mol_opt, mol_opt_decoder, optim, scheduler, data_loader, data_type,
             Y = X
         n_data = len(X.mols)
 
-        x_embedding = mol_opt.forward(X)
+        x_encoding, x_embedding = mol_opt.forward(X)
         yhat_logits = mol_opt_decoder.forward(x_embedding, X, Y)
         if args.penalty_gumbel:
             yhat_labels = mol_opt_decoder.discretize_gumbel(*yhat_logits, tau = pen_loss.tau)
@@ -171,6 +170,13 @@ def run_func(mol_opt, mol_opt_decoder, optim, scheduler, data_loader, data_type,
 
         loss = model_loss + pen_loss.conn_lambda * con_loss + \
             pen_loss.valency_lambda * val_loss + pen_loss.euler_lambda * eul_loss
+        if args.reconstruction_loss:
+            rec_loss.compute_lambdas(epoch_idx)
+            xhat_encoding = recpen_loss(x_encoding)
+            rec_loss = recpen_loss.calculate_loss(x_encoding, xhat_encoding, X.scope)
+            loss += rec_loss * rec_loss.rec_lambda
+            losses_stats_tracker.add_stat('rec_loss', rec_loss.item(), n_data)
+
         pen_loss.compute_lambdas(epoch_idx, model_loss.item()/n_data, 
             con_loss.item()/n_data, val_loss.item()/n_data, eul_loss.item()/n_data,
             loss.item()/n_data)
