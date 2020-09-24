@@ -5,9 +5,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from slot_attention import SlotAttention
+from torch.autograd import Variable
 
 from otgnn.graph import SYMBOLS, FORMAL_CHARGES, BOND_TYPES
 from mol_opt.ot_utils import compute_barycenter
+from mol_opt.transformer import make_model
 
 n_SYMBOLS = len(SYMBOLS)
 n_FORMAL_CHARGES = len(FORMAL_CHARGES)
@@ -29,8 +31,11 @@ class MolOptDecoder(nn.Module):
         if self.args.model_type == "ffn" or args.model_type == "transformer":
             self.Nref = self.args.dim_tangent_space
 
-        if self.args.model_type == "molemb":
+        if self.args.model_type == "molemb" or args.model_type == "transformer-ae":
             self.max_num_atoms = self.args.max_num_atoms
+
+        if self.args.model_type == "transformer-ae":
+            self.transformer = make_model(args)
 
         # TODO: Make a ModuleDict from feature to layers
         self.fc1_SYMBOLS = nn.Linear(self.args.pc_hidden, self.args.pred_hidden).to(device = args.device)
@@ -47,6 +52,7 @@ class MolOptDecoder(nn.Module):
         charges_logits = torch.empty(0, n_FORMAL_CHARGES, device=self.args.device)
 
         for idx, (stx, lex) in enumerate(x_batch.scope):
+            print (stx, lex)
             _, ley = y_batch.scope[idx]
 
             # cheating a bit here, by looking at what # of atoms should be
@@ -64,6 +70,15 @@ class MolOptDecoder(nn.Module):
                 yhat_narrow = compute_barycenter(x_narrow, ley).unsqueeze(0)
             elif self.args.model_type == "molemb":
                 yhat_narrow = x_embedding[idx,:ley].unsqueeze(0)
+            elif self.args.model_type == "transformer-ae":
+                ys = torch.zeros((1,self.args.pc_hidden))
+                for i in range(lex+1):
+                    print (i, ys.shape, x_embedding[i].shape)
+                    out = self.transformer(x_embedding[i], Variable(ys), None, None)
+                    ys = torch.cat([ys, out[-1].unsqueeze(0)])
+                yhat_narrow = out[1:].unsqueeze(0)
+                print (yhat_narrow.shape)
+
             
             # print (yhat_narrow.shape)
 

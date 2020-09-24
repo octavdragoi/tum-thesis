@@ -15,7 +15,7 @@ def get_args():
                     choices=['logp04', 'logp06','qed','drd2'])
     parser.add_argument('-model_type', type = str, default = "ffn",
                     help='name of model to train',
-                    choices=['ffn', 'transformer', 'slot', 'pointwise', 'molemb'])
+                    choices=['ffn', 'transformer', 'slot', 'pointwise', 'molemb', 'transformer-ae'])
     parser.add_argument('-one_batch_train', action = 'store_true',
                     help='train model on one batch only')
     parser.add_argument('-batch_size', type = int, default = 50,

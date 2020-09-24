@@ -7,11 +7,32 @@ import torch.nn as nn
 import torch.nn.functional as F
 import math, copy, time
 from torch.autograd import Variable
+import itertools
 
 ######### HELPER CLASSES #############
 def clones(module, N):
     "Produce N identical layers."
     return nn.ModuleList([copy.deepcopy(module) for _ in range(N)])
+
+class EncoderDecoder(nn.Module):
+    """
+    A standard Encoder-Decoder architecture. Base for this and many 
+    other models.
+    """
+    def __init__(self, encoder, decoder):
+        super(EncoderDecoder, self).__init__()
+        self.encoder = encoder
+        self.decoder = decoder
+        
+    def forward(self, src, tgt):
+        "Take in and process masked src and target sequences."
+        return self.decode(self.encode(src), tgt)
+    
+    def encode(self, src):
+        return self.encoder(src, None)
+    
+    def decode(self, memory, tgt):
+        return self.decoder(tgt, memory, None, None)
 
 class Encoder(nn.Module):
     "Core encoder is a stack of N layers"
@@ -26,6 +47,18 @@ class Encoder(nn.Module):
             x = layer(x, mask)
         return self.norm(x)
 
+class Decoder(nn.Module):
+    "Generic N layer decoder with masking."
+    def __init__(self, layer, N):
+        super(Decoder, self).__init__()
+        self.layers = clones(layer, N)
+        self.norm = LayerNorm(layer.size)
+        
+    def forward(self, x, memory, src_mask, tgt_mask):
+        for layer in self.layers:
+            x = layer(x, memory, src_mask, tgt_mask)
+        return self.norm(x)
+
 def make_model(args):
     "Helper: Construct a model from hyperparameters."
     N = args.N_transformer
@@ -33,14 +66,18 @@ def make_model(args):
     d_ff = args.n_ffn_transformer
     h = args.n_heads_transformer
     dropout = args.dropout_transformer
+    c = copy.deepcopy
 
     attn = MultiHeadedAttention(h, d_model)
     ff = PositionwiseFeedForward(d_model, d_ff, dropout)
-    model = Encoder(EncoderLayer(d_model, attn, ff, dropout), N)
+    # model = EncoderDecoder(
+    #     Encoder(EncoderLayer(d_model, c(attn), c(ff), dropout), N),
+    #     Decoder(DecoderLayer(d_model, c(attn), c(attn), c(ff), dropout), N))
+    model = Decoder(DecoderLayer(d_model, c(attn), c(attn), c(ff), dropout), N)
     
     # This was important from their code. 
     # Initialize parameters with Glorot / fan_avg.
-    for p in model.parameters():
+    for p in itertools.chain(model.parameters()):
         if p.dim() > 1:
             nn.init.xavier_uniform_(p)
     return model.to(args.device)
@@ -87,6 +124,22 @@ class EncoderLayer(nn.Module):
         x = self.sublayer[0](x, lambda x: self.self_attn(x, x, x, mask))
         return self.sublayer[1](x, self.feed_forward)
 
+class DecoderLayer(nn.Module):
+    "Decoder is made of self-attn, src-attn, and feed forward (defined below)"
+    def __init__(self, size, self_attn, src_attn, feed_forward, dropout):
+        super(DecoderLayer, self).__init__()
+        self.size = size
+        self.self_attn = self_attn
+        self.src_attn = src_attn
+        self.feed_forward = feed_forward
+        self.sublayer = clones(SublayerConnection(size, dropout), 3)
+ 
+    def forward(self, x, memory, src_mask, tgt_mask):
+        "Follow Figure 1 (right) for connections."
+        m = memory
+        x = self.sublayer[0](x, lambda x: self.self_attn(x, x, x, tgt_mask))
+        x = self.sublayer[1](x, lambda x: self.src_attn(x, m, m, src_mask))
+        return self.sublayer[2](x, self.feed_forward)
 
 ##### ATTENTION ######
 def attention(query, key, value, mask=None, dropout=None):
