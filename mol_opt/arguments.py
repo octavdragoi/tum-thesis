@@ -60,6 +60,7 @@ def get_args():
 
     # Molecule embedding params
     parser.add_argument('-max_num_atoms', type = int, default = 70)
+    parser.add_argument('-morgan_bits', type = int, default = 0)
 
     # OT Params
     parser.add_argument('-ot_solver', type=str, default='emd',

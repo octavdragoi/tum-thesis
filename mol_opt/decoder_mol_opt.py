@@ -52,7 +52,7 @@ class MolOptDecoder(nn.Module):
         charges_logits = torch.empty(0, n_FORMAL_CHARGES, device=self.args.device)
 
         for idx, (stx, lex) in enumerate(x_batch.scope):
-            print (stx, lex)
+            # print (stx, lex)
             _, ley = y_batch.scope[idx]
 
             # cheating a bit here, by looking at what # of atoms should be
@@ -73,11 +73,11 @@ class MolOptDecoder(nn.Module):
             elif self.args.model_type == "transformer-ae":
                 ys = torch.zeros((1,self.args.pc_hidden))
                 for i in range(lex+1):
-                    print (i, ys.shape, x_embedding[i].shape)
+                    # print (i, ys.shape, x_embedding[i].shape)
                     out = self.transformer(x_embedding[i], Variable(ys), None, None)
                     ys = torch.cat([ys, out[-1].unsqueeze(0)])
                 yhat_narrow = out[1:].unsqueeze(0)
-                print (yhat_narrow.shape)
+                # print (yhat_narrow.shape)
 
             
             # print (yhat_narrow.shape)
