@@ -18,7 +18,11 @@ def format_data_name(model_name, epoch):
 def get_latest_model(model_name, outdir, id = "model"):
     split_names = [x.split("_") for x in os.listdir(outdir)]
     split_names = [[x[0], "_".join(x[1:-1]), x[-1]] for x in split_names]
+    # print (split_names)
     try:
+        lst = [int(x[2]) for x in split_names if x[0] == id and 
+                            x[1] == model_name]
+        # print(lst)
         max_epoch = max([int(x[2]) for x in split_names if x[0] == id and 
                             x[1] == model_name])
     except ValueError:
@@ -29,7 +33,7 @@ def cleanup_dir(outdir, lastepoch):
     for fl in os.listdir(outdir):
         ep = int(fl.split("_")[2])
         ep_diff = lastepoch - ep
-        for modulo in [10, 100]:
+        for modulo in [20, 100]:
             if ep_diff > modulo and ep % modulo != 0:
                 try:
                     os.remove(os.path.join(outdir, fl))
@@ -44,19 +48,16 @@ def save_checkpoint(molopt, molopt_decoder, optimizer, penalty, recpen, schedule
         'molopt_decoder': molopt_decoder.state_dict(),
         'optimizer': optimizer.state_dict(),
         'penalty' : penalty.get_stats(),
-        'recpen' : recpen.state_dict(),
         'scheduler': scheduler.state_dict() if scheduler is not None else None
     }
+    if recpen is not None:
+        checkpoint['recpen'] = recpen.state_dict()
     torch.save(checkpoint, outfile)
 
-def load_checkpoint(infile, init_fc, args = None, cpu = False):
-    if cpu:
-        checkpoint = torch.load(infile, map_location=torch.device('cpu'))
-    else:
-        checkpoint = torch.load(infile)
+def load_checkpoint(infile, init_fc, args = None, device = 'cuda:0'):
+    checkpoint = torch.load(infile, map_location=torch.device(device))
     args = checkpoint['args']
-    if cpu:
-        args.device = 'cpu'
+    args.device = device
     molopt, molopt_decoder, optimizer, penalty, recpen, scheduler = init_fc(args)
     molopt.load_state_dict(checkpoint['molopt'])
     molopt_decoder.load_state_dict(checkpoint['molopt_decoder'])
@@ -81,14 +82,11 @@ def save_data(path, X, pred_pack, losses, pen_stats, lr):
     }
     torch.save(save_dict, path)
 
-def load_data(path):
-    load_dict = torch.load(path, map_location=lambda storage, location: storage)
+def load_data(path, device = 'cuda:0'):
+    load_dict = torch.load(path, map_location=torch.device(device))
     return load_dict
 
-
-
-
-def do_epoch(epochidx, outdir, tb_writer, metrics):
+def do_epoch(epochidx, outdir, tb_writer, metrics, device = 'cuda:0'):
     datapoints = sorted([x for x in os.listdir(outdir) if "data" in x])
     for x in datapoints:
         curr_idx = int(x.split("_")[2])
@@ -116,7 +114,7 @@ def do_epoch(epochidx, outdir, tb_writer, metrics):
                 losses_stats_tracker = StatsTracker()
                 while os.path.exists(os.path.join(outdir, x, "{}_{}.out".format(data_type, idx_batch))):
                     print ("{}_{}.out".format(data_type, idx_batch))
-                    loaded_dict = load_data(os.path.join(outdir, x, "{}_{}.out".format(data_type, idx_batch)))
+                    loaded_dict = load_data(os.path.join(outdir, x, "{}_{}.out".format(data_type, idx_batch)), device = device)
                     pred_pack = loaded_dict['pred_pack']
     #                 X = loaded_dict['X']
                     X = pred_pack[1] # TODO
@@ -125,7 +123,7 @@ def do_epoch(epochidx, outdir, tb_writer, metrics):
                 
                     # get the losses
                     for key, val in loaded_dict['losses'][0].items():
-                        print (key, val)
+                        # print (key, val)
                         losses_stats_tracker.add_stat(key, val, 1)
                         
                     # add metric stats
@@ -186,8 +184,8 @@ def main(outdir, logdir, prev_epoch = 1, flush_secs = 5, device = 'cuda:0'):
     curr_epoch = prev_epoch
 
     while 1:
-        curr_epoch = do_epoch(curr_epoch, outdir, tb_writer, metrics)
+        curr_epoch = do_epoch(curr_epoch, outdir, tb_writer, metrics, device = device)
         print ("Currently at epoch {}. Sleeping...".format(curr_epoch))
-        time.sleep(10)
+        time.sleep(60)
 
     tb_writer.close()

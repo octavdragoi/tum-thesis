@@ -100,7 +100,7 @@ class FGW:
             loss += atom_gw_dist + bond_gw_dist
             bond_idx += num_atoms * num_atoms
         G = grad(loss, bonds_logits, retain_graph = True)[0]
-        print ("FGW", G.shape, G.abs().mean().item())
+        # print ("FGW", G.shape, G.abs().mean().item())
         return loss
 
 def compute_barycenter(pc_X, b_size, bary_pc_gain=1, num_iters=5):

@@ -55,7 +55,7 @@ def initialize_models(args):
     # optimizer = Ranger(molopt_module_list.parameters(), lr=0.001, N_sma_threshhold=4, use_gc = False)
     # optimizer = RangerVA(molopt_module_list.parameters(), lr=0.007, k=10,n_sma_threshhold=4)
 
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size = 100, gamma = 0.98)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size =250, gamma = 0.98)
     # scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, np.arange(0,2000, 100), gamma = 0.9)
     # lmbda = lambda epoch: 1.0 if epoch < 1300 else 0.2
     # scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda = lmbda)
@@ -65,7 +65,10 @@ def initialize_models(args):
     penalty = Penalty(args)
     # penalty = None
 
-    recpenalty = RecPenalty(args)
+    try:
+        recpenalty = RecPenalty(args)
+    except AttributeError:
+        recpenalty = None
 
     return molopt, molopt_decoder, optimizer, penalty, recpenalty, scheduler
 
@@ -85,7 +88,7 @@ def main(args = None, train_data_loader = None, val_data_loader = None):
     if model_name is not None:
         infile = os.path.join(args.output_dir, format_name(args.init_model, prev_epoch))
         print ("Found previous model {}, epoch {}. Overwriting args.".format(infile, prev_epoch))
-        molopt, molopt_decoder, optimizer, pen_loss, recpen_loss, scheduler, _, prev_epoch = load_checkpoint(infile, initialize_models)
+        molopt, molopt_decoder, optimizer, pen_loss, recpen_loss, scheduler, _, prev_epoch = load_checkpoint(infile, initialize_models, device = args.device)
     else:
         print ("No model {} found in {}! Starting from scratch.".format(args.init_model, args.output_dir))
         molopt, molopt_decoder, optimizer, pen_loss, recpen_loss, scheduler = initialize_models(args)
@@ -96,9 +99,11 @@ def main(args = None, train_data_loader = None, val_data_loader = None):
     if train_data_loader is None:
         train_data_loader = get_loader(datapath, "train", args.batch_size, True)
 
+    pen_loss.log()
     for epoch in range(prev_epoch + 1, prev_epoch + args.n_epochs + 1):
         start = time.time()
         print ("Epoch:", epoch)
+        # pen_loss.log()
 
         Path(os.path.join(args.output_dir, format_data_name(args.init_model, epoch))).mkdir(parents=True, exist_ok=True)
         # run the training procedure
@@ -171,10 +176,10 @@ def run_func(mol_opt, mol_opt_decoder, optim, scheduler, data_loader, data_type,
         loss = model_loss + pen_loss.conn_lambda * con_loss + \
             pen_loss.valency_lambda * val_loss + pen_loss.euler_lambda * eul_loss
         if args.reconstruction_loss:
-            rec_loss.compute_lambdas(epoch_idx)
+            recpen_loss.compute_lambdas(epoch_idx)
             xhat_encoding = recpen_loss(x_encoding)
             rec_loss = recpen_loss.calculate_loss(x_encoding, xhat_encoding, X.scope)
-            loss += rec_loss * rec_loss.rec_lambda
+            loss += rec_loss * recpen_loss.rec_lambda
             losses_stats_tracker.add_stat('rec_loss', rec_loss.item(), n_data)
 
         pen_loss.compute_lambdas(epoch_idx, model_loss.item()/n_data, 
@@ -202,6 +207,11 @@ def run_func(mol_opt, mol_opt_decoder, optim, scheduler, data_loader, data_type,
         # train on the first batch only
         if args.one_batch_train:
             break
+
+        if idx_batch % 30 == 0:
+            losses_stats_tracker.print_stats("Losses Batch {}, {}".format(idx_batch, data_type))
+            if is_train:
+                pen_loss.log()
 
     # signal that the output files are complete
     Path(os.path.join(args.output_dir, format_data_name(args.init_model, epoch_idx), "{}_{}.out".format(data_type, "complete"))).touch()
