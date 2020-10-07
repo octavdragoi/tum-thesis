@@ -50,7 +50,7 @@ class FGW:
         logitsn = logits
         return -nn.LogSoftmax(dim=1)(logitsn)
 
-    def __call__(self, prediction, target_batch, tau = 1):
+    def __call__(self, prediction, target_batch, tau = 1, ot_plans = None):
         # Unpack inputs
         _, logits, scope = prediction
         # symbols_labels, charges_labels, bonds_labels = labels
@@ -86,6 +86,7 @@ class FGW:
             pred_bonds_nll = bonds_nll[bond_idx:bond_idx+num_atoms*num_atoms].view(num_atoms, num_atoms, -1) # num_atoms^2 predictions for all the possible bonds
             target_bonds_rescaled = target_bonds[bond_idx:bond_idx+num_atoms*num_atoms].view(num_atoms, num_atoms, -1) # num_atoms^2 predictions for all the possible bonds
 
+            # return (M, pred_bonds_nll, target_bonds_rescaled)
             atom_gw_dist, bond_gw_dist, _, _ = fused_gw_torch(
                 M=M,
                 C1= target_bonds_rescaled,
@@ -95,13 +96,43 @@ class FGW:
                 dist_type='dot',
                 nce_reg = True,
                 alpha=self.alpha,
+                ot_plan = ot_plans[mol_idx] if ot_plans is not None else None,
                 device=device
             )
             loss += atom_gw_dist + bond_gw_dist
             bond_idx += num_atoms * num_atoms
-        G = grad(loss, bonds_logits, retain_graph = True)[0]
+        # G = grad(loss, bonds_logits, retain_graph = True)[0]
         # print ("FGW", G.shape, G.abs().mean().item())
         return loss
+
+
+class CrossAttUnit(nn.Module):
+    def __init__(self, args):
+        super(CrossAttUnit, self).__init__()
+        self.args = args
+        self.cross_att_use = args.cross_att_use
+
+        if self.cross_att_use:
+            self.cross_att_dim = args.cross_att_dim
+
+            self.k = nn.parameter.Parameter(torch.randn(args.pc_hidden, self.cross_att_dim, device = args.device))
+            self.q = nn.parameter.Parameter(torch.randn(args.pc_hidden, self.cross_att_dim, device = args.device))
+            self.eps = 1e-06
+
+    def forward(self, yhat_embedding, y_embedding, X):
+        if not self.cross_att_use:
+            return None
+
+        cross_mats = []
+        for _, (stx, lex) in enumerate(X.scope):
+            yhat = yhat_embedding[stx:stx+lex]
+            y = y_embedding[stx:stx+lex]
+            M = 1/np.sqrt(self.cross_att_dim) * torch.matmul(torch.matmul(y, self.k), torch.matmul(self.q.T, yhat.T))
+            attn = torch.softmax(M, dim = 1) + self.eps
+            W = (attn / attn.sum(axis = 0))
+            cross_mats.append(W)
+        return cross_mats
+   
 
 def compute_barycenter(pc_X, b_size, bary_pc_gain=1, num_iters=5):
     '''

@@ -39,6 +39,9 @@ class MolOpt(nn.Module):
         if self.args.model_type == "pointwise":
             self.opt0 = nn.Linear(self.args.pc_hidden, self.args.n_hidden).to(device = args.device)
             self.opt1 = nn.Linear(self.args.n_hidden, self.args.pc_hidden).to(device = args.device)
+        if self.args.model_type == "deepsets":
+            self.opt0 = nn.Linear(2 * self.args.pc_hidden, self.args.n_hidden).to(device = args.device)
+            self.opt1 = nn.Linear(self.args.n_hidden, self.args.pc_hidden).to(device = args.device)
         if self.args.model_type == "ffn":
             self.opt0 = nn.Linear(self.Nref * self.args.pc_hidden, self.Nref * self.args.n_hidden).to(device = args.device)
             self.opt1 = nn.Linear(self.Nref * self.args.n_hidden, self.Nref * self.args.pc_hidden).to(device = args.device)
@@ -48,7 +51,7 @@ class MolOpt(nn.Module):
             self.opt1 = nn.Linear(self.args.n_hidden * self.max_num_atoms, self.args.pc_hidden * self.max_num_atoms).to(device = args.device)
 
         # only for models generating a molecule embedding
-        if self.args.morgan_bits > 0:
+        if hasattr(self.args, "morgan_bits") and self.args.morgan_bits > 0:
             self.morg0 = nn.Linear(self.args.pc_hidden + self.args.morgan_bits, self.args.n_hidden).to(device = args.device)
             self.morg1 = nn.Linear(self.args.n_hidden, self.args.pc_hidden).to(device = args.device)
 
@@ -60,17 +63,25 @@ class MolOpt(nn.Module):
         elif self.args.model_type == "slot" or self.args.model_type == "pointwise":
             return embedding
         elif self.args.model_type == "molemb" or self.args.model_type == "transformer-ae":
-            if self.args.morgan_bits > 0:
+            if hasattr(self.args, "morgan_bits") and self.args.morgan_bits > 0:
                 mol_embs = torch.zeros((self.args.batch_size, self.args.morgan_bits + self.args.pc_hidden), device = self.args.device)
             else:
                 mol_embs = torch.zeros((self.args.batch_size, self.args.pc_hidden), device = self.args.device)
             for idx, (stx, lex) in enumerate(batch.scope):
                 narrow = embedding.narrow(0, stx, lex)
                 mol_embs[idx,:self.args.pc_hidden] = narrow.sum(axis = 0)
-                if self.args.morgan_bits > 0:
+                if hasattr(self.args, "morgan_bits") and self.args.morgan_bits > 0:
                     mol_fingerp = GetMorganFingerprintAsBitVect(batch.rd_mols[0],2,nBits=self.args.morgan_bits)
                     mol_embs[idx,self.args.pc_hidden:][mol_fingerp] = 1
             return mol_embs
+        elif self.args.model_type == "deepsets":
+            nemb = torch.empty(embedding.shape[0],2 * self.args.pc_hidden, device = self.args.device)
+            nemb[:,:self.args.pc_hidden] = embedding
+            for idx, (stx, lex) in enumerate(batch.scope):
+                narrow = embedding.narrow(0, stx, lex).mean(axis = 0)
+                nemb[stx:stx+lex,self.args.pc_hidden:] = narrow
+            return nemb
+
 
     def project(self, embedding, batch):
         """ Project on the tangent space
@@ -87,9 +98,9 @@ class MolOpt(nn.Module):
         return tg_embedding
 
     def optimize(self, x_embedding, x_batch):
-        if self.args.morgan_bits > 0:
+        if hasattr(self.args, "morgan_bits") and self.args.morgan_bits > 0:
             x_embedding = self.morg1(F.leaky_relu(self.morg0(x_embedding)))
-        if self.args.model_type == "pointwise":
+        if self.args.model_type == "pointwise" or self.args.model_type == "deepsets":
             return self.opt1(F.leaky_relu(self.opt0(x_embedding)))
         elif self.args.model_type == "ffn":
             x_embedding_view = x_embedding.view(-1, self.Nref * self.args.pc_hidden)

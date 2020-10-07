@@ -15,7 +15,7 @@ def get_args():
                     choices=['logp04', 'logp06','qed','drd2'])
     parser.add_argument('-model_type', type = str, default = "ffn",
                     help='name of model to train',
-                    choices=['ffn', 'transformer', 'slot', 'pointwise', 'molemb', 'transformer-ae'])
+                    choices=['ffn', 'transformer', 'slot', 'pointwise', 'molemb', 'transformer-ae', 'deepsets'])
     parser.add_argument('-one_batch_train', action = 'store_true',
                     help='train model on one batch only')
     parser.add_argument('-batch_size', type = int, default = 50,
@@ -70,6 +70,10 @@ def get_args():
                         help='Entropy regularization term for sinkhorn')
     parser.add_argument('-sinkhorn_max_it', type=int, default=10000,
                         help='Max num it for sinkhorn')
+
+    # Cross Attention Params
+    parser.add_argument('-cross_att_use', action = "store_true")
+    parser.add_argument('-cross_att_dim', type = int, default = 150)
 
     # Penalty params
     parser.add_argument('-connectivity', type=bool, default=True)

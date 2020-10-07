@@ -17,7 +17,7 @@ from mol_opt.data_mol_opt import get_loader
 from mol_opt.arguments import get_args
 from mol_opt.mol_opt import MolOpt
 from mol_opt.decoder_mol_opt import MolOptDecoder
-from mol_opt.ot_utils import FGW 
+from mol_opt.ot_utils import FGW, CrossAttUnit
 from mol_opt.log_mol_opt import save_data, format_name, format_data_name, get_latest_model, cleanup_dir, save_checkpoint, load_checkpoint
 
 from molgen.metrics.Penalty import Penalty, RecPenalty
@@ -42,7 +42,11 @@ ft = {
 def initialize_models(args):
     molopt = MolOpt(args).to(device = args.device)
     molopt_decoder = MolOptDecoder(args).to(device = args.device)
-    molopt_module_list = torch.nn.ModuleList([molopt, molopt_decoder])
+    try:
+        crossatt = CrossAttUnit(args).to(device = args.device)
+    except AttributeError:
+        crossatt = None
+    molopt_module_list = torch.nn.ModuleList([molopt, molopt_decoder, crossatt])
     # create your optimizer
     # optimizer = torch.optiG.RMSprop(molopt_module_list.parameters(), lr=0.004)
     optimizer = torch.optim.Adam(molopt_module_list.parameters(), lr=0.004,
@@ -55,7 +59,7 @@ def initialize_models(args):
     # optimizer = Ranger(molopt_module_list.parameters(), lr=0.001, N_sma_threshhold=4, use_gc = False)
     # optimizer = RangerVA(molopt_module_list.parameters(), lr=0.007, k=10,n_sma_threshhold=4)
 
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size =250, gamma = 0.98)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size = 250, gamma = 0.98)
     # scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, np.arange(0,2000, 100), gamma = 0.9)
     # lmbda = lambda epoch: 1.0 if epoch < 1300 else 0.2
     # scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda = lmbda)
@@ -70,7 +74,7 @@ def initialize_models(args):
     except AttributeError:
         recpenalty = None
 
-    return molopt, molopt_decoder, optimizer, penalty, recpenalty, scheduler
+    return molopt, molopt_decoder, optimizer, penalty, recpenalty, crossatt, scheduler
 
 def main(args = None, train_data_loader = None, val_data_loader = None):
     if args is None:
@@ -88,10 +92,10 @@ def main(args = None, train_data_loader = None, val_data_loader = None):
     if model_name is not None:
         infile = os.path.join(args.output_dir, format_name(args.init_model, prev_epoch))
         print ("Found previous model {}, epoch {}. Overwriting args.".format(infile, prev_epoch))
-        molopt, molopt_decoder, optimizer, pen_loss, recpen_loss, scheduler, _, prev_epoch = load_checkpoint(infile, initialize_models, device = args.device)
+        molopt, molopt_decoder, optimizer, pen_loss, recpen_loss, crossatt, scheduler, _, prev_epoch = load_checkpoint(infile, initialize_models, device = args.device)
     else:
         print ("No model {} found in {}! Starting from scratch.".format(args.init_model, args.output_dir))
-        molopt, molopt_decoder, optimizer, pen_loss, recpen_loss, scheduler = initialize_models(args)
+        molopt, molopt_decoder, optimizer, pen_loss, recpen_loss, crossatt, scheduler = initialize_models(args)
 
 
     # the data is from Wengong's repo
@@ -108,12 +112,12 @@ def main(args = None, train_data_loader = None, val_data_loader = None):
         Path(os.path.join(args.output_dir, format_data_name(args.init_model, epoch))).mkdir(parents=True, exist_ok=True)
         # run the training procedure
         run_func(molopt, molopt_decoder, optimizer, scheduler, train_data_loader, "train", 
-                args, pen_loss, recpen_loss, epoch)
+                args, pen_loss, recpen_loss, crossatt, epoch)
 
         # compute the validation loss as well, at the end of the epoch?
         if not args.one_batch_train and val_data_loader is not None:
             run_func(molopt, molopt_decoder, optimizer, scheduler, val_data_loader, "val", args, 
-                    pen_loss, recpen_loss, epoch)
+                    pen_loss, recpen_loss, crossatt, epoch)
 
         end = time.time()
         print("Epoch duration:", end - start)
@@ -121,7 +125,7 @@ def main(args = None, train_data_loader = None, val_data_loader = None):
         # save your progress along the way
         outfile = os.path.join(args.output_dir, format_name(args.init_model, epoch))
         print ("Saving model, do not interrupt...")
-        save_checkpoint(molopt, molopt_decoder, optimizer, pen_loss, recpen_loss, scheduler, epoch, args, outfile)
+        save_checkpoint(molopt, molopt_decoder, optimizer, pen_loss, recpen_loss, crossatt, scheduler, epoch, args, outfile)
         print ("Saved at", outfile)
         cleanup_dir(args.output_dir, epoch)
     
@@ -129,7 +133,7 @@ def main(args = None, train_data_loader = None, val_data_loader = None):
 
 
 def run_func(mol_opt, mol_opt_decoder, optim, scheduler, data_loader, data_type, args, 
-        pen_loss, recpen_loss, epoch_idx):
+        pen_loss, recpen_loss, crossatt, epoch_idx):
     """ 
     Function that trains the GCN embeddings.
     Also used for validation purposes.
@@ -168,10 +172,18 @@ def run_func(mol_opt, mol_opt_decoder, optim, scheduler, data_loader, data_type,
             yhat_labels = mol_opt_decoder.discretize_argmax(*yhat_logits)
         pred_pack = (yhat_labels, yhat_logits, Y.scope), Y
         # model_loss = fgw_loss(*pred_pack, tau = pen_loss.tau)
-        model_loss = fgw_loss(*pred_pack, tau = 1)
+        if args.cross_att_use:
+            y_encoding = mol_opt.GCN(Y)[0]
+            cross_mats = crossatt.forward(x_embedding, y_encoding, X)
+            model_loss = fgw_loss(*pred_pack, tau = 1, ot_plans = cross_mats)
+        else:
+            model_loss = fgw_loss(*pred_pack, tau = 1)
         # compute the lambdas and losses, based on this fgw loss
         con_loss, val_loss, eul_loss = pen_loss(*pred_pack, epochidx = epoch_idx)
         # model_loss = fgw_loss(*pred_pack)
+        # print (con_loss)
+        # print (val_loss)
+        # print (eul_loss)
 
         loss = model_loss + pen_loss.conn_lambda * con_loss + \
             pen_loss.valency_lambda * val_loss + pen_loss.euler_lambda * eul_loss

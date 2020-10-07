@@ -33,14 +33,14 @@ def cleanup_dir(outdir, lastepoch):
     for fl in os.listdir(outdir):
         ep = int(fl.split("_")[2])
         ep_diff = lastepoch - ep
-        for modulo in [20, 100]:
+        for modulo in [20, 100, 250]:
             if ep_diff > modulo and ep % modulo != 0:
                 try:
                     os.remove(os.path.join(outdir, fl))
                 except (FileNotFoundError, IsADirectoryError):
                     pass
 
-def save_checkpoint(molopt, molopt_decoder, optimizer, penalty, recpen, scheduler, epoch, args, outfile):
+def save_checkpoint(molopt, molopt_decoder, optimizer, penalty, recpen, crossatt, scheduler, epoch, args, outfile):
     checkpoint = {
         'epoch': epoch,
         'args': args,
@@ -52,13 +52,15 @@ def save_checkpoint(molopt, molopt_decoder, optimizer, penalty, recpen, schedule
     }
     if recpen is not None:
         checkpoint['recpen'] = recpen.state_dict()
+    if crossatt is not None:
+        checkpoint['crossatt'] = crossatt.state_dict()
     torch.save(checkpoint, outfile)
 
 def load_checkpoint(infile, init_fc, args = None, device = 'cuda:0'):
     checkpoint = torch.load(infile, map_location=torch.device(device))
     args = checkpoint['args']
     args.device = device
-    molopt, molopt_decoder, optimizer, penalty, recpen, scheduler = init_fc(args)
+    molopt, molopt_decoder, optimizer, penalty, recpen, crossatt, scheduler = init_fc(args)
     molopt.load_state_dict(checkpoint['molopt'])
     molopt_decoder.load_state_dict(checkpoint['molopt_decoder'])
     optimizer.load_state_dict(checkpoint['optimizer'])
@@ -69,7 +71,9 @@ def load_checkpoint(infile, init_fc, args = None, device = 'cuda:0'):
     penalty.load_stats(checkpoint['penalty'])
     if 'recpen' in checkpoint:
         recpen.load_state_dict(checkpoint['recpen'])
-    return molopt, molopt_decoder, optimizer, penalty, recpen, scheduler, checkpoint['args'], checkpoint['epoch']
+    if 'crossatt' in checkpoint:
+        crossatt.load_state_dict(checkpoint['crossatt'])
+    return molopt, molopt_decoder, optimizer, penalty, recpen, crossatt, scheduler, checkpoint['args'], checkpoint['epoch']
 
 def save_data(path, X, pred_pack, losses, pen_stats, lr):
     # print (path, pred_pack, losses, pen_stats, lr)
@@ -87,7 +91,7 @@ def load_data(path, device = 'cuda:0'):
     return load_dict
 
 def do_epoch(epochidx, outdir, tb_writer, metrics, device = 'cuda:0'):
-    datapoints = sorted([x for x in os.listdir(outdir) if "data" in x])
+    datapoints = sorted([x for x in os.listdir(outdir) if "data" in x], key = lambda x: (len (x), x))
     for x in datapoints:
         curr_idx = int(x.split("_")[2])
         if curr_idx >= epochidx:

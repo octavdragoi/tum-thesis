@@ -56,7 +56,7 @@ class MolOptDecoder(nn.Module):
             _, ley = y_batch.scope[idx]
 
             # cheating a bit here, by looking at what # of atoms should be
-            if self.args.model_type == "pointwise":
+            if self.args.model_type == "pointwise" or self.args.model_type == "deepsets":
                 if lex != ley:
                     raise RuntimeError("{}!={}, which is required for pointwise optimization".\
                         format(lex, ley))
@@ -95,6 +95,7 @@ class MolOptDecoder(nn.Module):
             # print(x1.shape)
             # print(x2.shape)
             _bonds = torch.cat((x1, x2), dim = 2)
+            # print (_bonds.shape)
             bonds_logits_mol = self.fc2_BONDS(F.leaky_relu(self.fc1_BONDS(_bonds)))
             # add matrix with its transpose, to get a symmetric matrix 
             bonds_logits_mol = bonds_logits_mol.view(ley, ley, n_BOND_TYPES) 
