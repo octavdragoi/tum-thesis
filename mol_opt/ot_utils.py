@@ -124,12 +124,30 @@ class CrossAttUnit(nn.Module):
             return None
 
         cross_mats = []
-        for _, (stx, lex) in enumerate(X.scope):
+        for idx, (stx, lex) in enumerate(X.scope):
             yhat = yhat_embedding[stx:stx+lex]
             y = y_embedding[stx:stx+lex]
             M = 1/np.sqrt(self.cross_att_dim) * torch.matmul(torch.matmul(y, self.k), torch.matmul(self.q.T, yhat.T))
-            attn = torch.softmax(M, dim = 1) + self.eps
-            W = (attn / attn.sum(axis = 0))
+
+            if self.args.cross_att_random:
+                dim = np.random.randint(2)
+            else:
+                dim = 1
+
+            attn = torch.softmax(M, dim = dim) + self.eps
+            W = attn/(len(attn))
+            if idx == 0:
+                print (W.sum(axis = 0))
+                print (W.sum(axis = 1))
+                print ()
+            for _ in range(self.args.cross_att_n_sinkhorn):
+                dim = 1 - dim
+                W = (W.transpose(0,dim) / W.sum(axis = dim)).transpose(0,dim)
+                W = W/(len(W))
+                if idx == 0:
+                    print (W.sum(axis = 0))
+                    print (W.sum(axis = 1))
+                    print ()
             cross_mats.append(W)
         return cross_mats
    

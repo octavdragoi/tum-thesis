@@ -74,6 +74,8 @@ def get_args():
     # Cross Attention Params
     parser.add_argument('-cross_att_use', action = "store_true")
     parser.add_argument('-cross_att_dim', type = int, default = 150)
+    parser.add_argument('-cross_att_random', action = 'store_true')
+    parser.add_argument('-cross_att_n_sinkhorn', type = int, default = 1)
 
     # Penalty params
     parser.add_argument('-connectivity', type=bool, default=True)
