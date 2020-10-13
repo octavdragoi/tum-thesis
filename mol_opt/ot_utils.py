@@ -7,6 +7,8 @@ import ot
 from otgnn.models import fused_gw_torch, compute_ot
 from otgnn.graph import SYMBOLS, FORMAL_CHARGES, BOND_TYPES, get_bt_index
 
+from molgen.Discretizer.sinkhorn import sinkhorn_knopp
+
 import torch.nn.functional as F
 
 def encode_target(y_batch, device = 'cpu'):
@@ -119,15 +121,24 @@ class CrossAttUnit(nn.Module):
             self.q = nn.parameter.Parameter(torch.randn(args.pc_hidden, self.cross_att_dim, device = args.device))
             self.eps = 1e-06
 
-    def forward(self, yhat_embedding, y_embedding, X):
+    def forward(self, yhat_embedding, y_embedding, X, model_type):
         if not self.cross_att_use:
             return None
+        # print (yhat_embedding.shape, y_embedding.shape)
 
         cross_mats = []
         for idx, (stx, lex) in enumerate(X.scope):
-            yhat = yhat_embedding[stx:stx+lex]
             y = y_embedding[stx:stx+lex]
+            # these things vary because of the different types of embedding for diff models
+            if model_type == "deepsets":
+                yhat = yhat_embedding[stx:stx+lex]
+            elif model_type == "molemb":
+                yhat = yhat_embedding[idx][:lex]
+            # print(y.shape, self.k.shape, self.q.shape, yhat.shape)
             M = 1/np.sqrt(self.cross_att_dim) * torch.matmul(torch.matmul(y, self.k), torch.matmul(self.q.T, yhat.T))
+
+            # clamp unreasonable values
+            M = M.clamp(-5, 5)
 
             if self.args.cross_att_random:
                 dim = np.random.randint(2)
@@ -136,18 +147,23 @@ class CrossAttUnit(nn.Module):
 
             attn = torch.softmax(M, dim = dim) + self.eps
             W = attn/(len(attn))
-            if idx == 0:
-                print (W.sum(axis = 0))
-                print (W.sum(axis = 1))
-                print ()
+            # if idx == 0:
+            #     print (W.sum(axis = 0))
+            #     print (W.sum(axis = 1))
+            #     print ()
+
+            # use Pani's implementation, looks more legit, with his reg parameter
+            # W = sinkhorn_knopp(W, -0.1)
+
+            # homemade implementation
             for _ in range(self.args.cross_att_n_sinkhorn):
                 dim = 1 - dim
                 W = (W.transpose(0,dim) / W.sum(axis = dim)).transpose(0,dim)
                 W = W/(len(W))
-                if idx == 0:
-                    print (W.sum(axis = 0))
-                    print (W.sum(axis = 1))
-                    print ()
+            #     # if idx == 0:
+            #     #     print (W.sum(axis = 0))
+            #     #     print (W.sum(axis = 1))
+            #     #     print ()
             cross_mats.append(W)
         return cross_mats
    

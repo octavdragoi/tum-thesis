@@ -33,7 +33,7 @@ def cleanup_dir(outdir, lastepoch):
     for fl in os.listdir(outdir):
         ep = int(fl.split("_")[2])
         ep_diff = lastepoch - ep
-        for modulo in [20, 100, 250]:
+        for modulo in [20, 100, 400]:
             if ep_diff > modulo and ep % modulo != 0:
                 try:
                     os.remove(os.path.join(outdir, fl))

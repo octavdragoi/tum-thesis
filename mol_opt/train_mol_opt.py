@@ -123,11 +123,12 @@ def main(args = None, train_data_loader = None, val_data_loader = None):
         print("Epoch duration:", end - start)
 
         # save your progress along the way
-        outfile = os.path.join(args.output_dir, format_name(args.init_model, epoch))
-        print ("Saving model, do not interrupt...")
-        save_checkpoint(molopt, molopt_decoder, optimizer, pen_loss, recpen_loss, crossatt, scheduler, epoch, args, outfile)
-        print ("Saved at", outfile)
-        cleanup_dir(args.output_dir, epoch)
+        if epoch % 20 == 0:
+            outfile = os.path.join(args.output_dir, format_name(args.init_model, epoch))
+            print ("Saving model, do not interrupt...")
+            save_checkpoint(molopt, molopt_decoder, optimizer, pen_loss, recpen_loss, crossatt, scheduler, epoch, args, outfile)
+            print ("Saved at", outfile)
+            cleanup_dir(args.output_dir, epoch)
     
     return molopt, molopt_decoder
 
@@ -174,7 +175,7 @@ def run_func(mol_opt, mol_opt_decoder, optim, scheduler, data_loader, data_type,
         # model_loss = fgw_loss(*pred_pack, tau = pen_loss.tau)
         if args.cross_att_use:
             y_encoding = mol_opt.GCN(Y)[0]
-            cross_mats = crossatt.forward(x_embedding, y_encoding, X)
+            cross_mats = crossatt.forward(x_embedding, y_encoding, X, args.model_type)
             model_loss = fgw_loss(*pred_pack, tau = 1, ot_plans = cross_mats)
         else:
             model_loss = fgw_loss(*pred_pack, tau = 1)
