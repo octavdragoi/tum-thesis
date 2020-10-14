@@ -2,6 +2,7 @@ from pathlib import Path
 import torch
 import os
 import time
+import numpy as np
 
 from mol_opt.task_metrics import measure_task
 from otgnn.utils import save_model, load_model, StatsTracker, log_tensorboard
@@ -33,7 +34,7 @@ def cleanup_dir(outdir, lastepoch):
     for fl in os.listdir(outdir):
         ep = int(fl.split("_")[2])
         ep_diff = lastepoch - ep
-        for modulo in [20, 100, 400]:
+        for modulo in [20, 100]:
             if ep_diff > modulo and ep % modulo != 0:
                 try:
                     os.remove(os.path.join(outdir, fl))
@@ -143,7 +144,10 @@ def do_epoch(epochidx, outdir, tb_writer, metrics, device = 'cuda:0'):
                         n_data_curr = n_data if "degree" in m else 1
                         metrics_stats_tracker.add_stat(m, res[m], n_data_curr)
                     for m in res_vars:
-                        metrics_stats_tracker.add_var_stat(m, *res_vars[m])
+                        try:
+                            metrics_stats_tracker.add_var_stat(m, *res_vars[m])
+                        except TypeError:
+                            print ("invalid vars to plot:", m, res_vars[m])
                     idx_batch += 1
 
                 # print and send logs to tensorboard

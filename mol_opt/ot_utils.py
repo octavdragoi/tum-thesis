@@ -117,8 +117,12 @@ class CrossAttUnit(nn.Module):
         if self.cross_att_use:
             self.cross_att_dim = args.cross_att_dim
 
-            self.k = nn.parameter.Parameter(torch.randn(args.pc_hidden, self.cross_att_dim, device = args.device))
-            self.q = nn.parameter.Parameter(torch.randn(args.pc_hidden, self.cross_att_dim, device = args.device))
+            # self.k = nn.parameter.Parameter(torch.randn(args.pc_hidden, self.cross_att_dim, device = args.device))
+            # self.q = nn.parameter.Parameter(torch.randn(args.pc_hidden, self.cross_att_dim, device = args.device))
+            self.k0 = nn.Linear(self.args.pc_hidden, self.args.n_hidden).to(device = args.device)
+            self.k1 = nn.Linear(self.args.n_hidden, self.cross_att_dim).to(device = args.device)
+            self.q0 = nn.Linear(self.args.pc_hidden, self.args.n_hidden).to(device = args.device)
+            self.q1 = nn.Linear(self.args.n_hidden, self.cross_att_dim).to(device = args.device)
             self.eps = 1e-06
 
     def forward(self, yhat_embedding, y_embedding, X, model_type):
@@ -135,10 +139,11 @@ class CrossAttUnit(nn.Module):
             elif model_type == "molemb":
                 yhat = yhat_embedding[idx][:lex]
             # print(y.shape, self.k.shape, self.q.shape, yhat.shape)
-            M = 1/np.sqrt(self.cross_att_dim) * torch.matmul(torch.matmul(y, self.k), torch.matmul(self.q.T, yhat.T))
+            # M = 1/np.sqrt(self.cross_att_dim) * torch.matmul(torch.matmul(y, self.k), torch.matmul(self.q.T, yhat.T))
+            M = torch.matmul(self.k1(F.leaky_relu(self.k0(y))), self.q1(F.leaky_relu(self.q0(yhat))).T)
 
             # clamp unreasonable values
-            M = M.clamp(-5, 5)
+            # M = M.clamp(-5, 5)
 
             if self.args.cross_att_random:
                 dim = np.random.randint(2)
