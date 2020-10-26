@@ -52,7 +52,8 @@ class FGW:
         logitsn = logits
         return -nn.LogSoftmax(dim=1)(logitsn)
 
-    def __call__(self, prediction, target_batch, tau = 1, ot_plans = None):
+    def __call__(self, prediction, target_batch, tau = 1, ot_plans = None, debug = False,
+            atoms = True, bonds = True):
         # Unpack inputs
         _, logits, scope = prediction
         # symbols_labels, charges_labels, bonds_labels = labels
@@ -88,7 +89,8 @@ class FGW:
             pred_bonds_nll = bonds_nll[bond_idx:bond_idx+num_atoms*num_atoms].view(num_atoms, num_atoms, -1) # num_atoms^2 predictions for all the possible bonds
             target_bonds_rescaled = target_bonds[bond_idx:bond_idx+num_atoms*num_atoms].view(num_atoms, num_atoms, -1) # num_atoms^2 predictions for all the possible bonds
 
-            # return (M, pred_bonds_nll, target_bonds_rescaled)
+            if debug:
+                return (M, pred_bonds_nll, target_bonds_rescaled)
             atom_gw_dist, bond_gw_dist, _, _ = fused_gw_torch(
                 M=M,
                 C1= target_bonds_rescaled,
@@ -101,7 +103,10 @@ class FGW:
                 ot_plan = ot_plans[mol_idx] if ot_plans is not None else None,
                 device=device
             )
-            loss += atom_gw_dist + bond_gw_dist
+            if atoms: 
+                loss += atom_gw_dist
+            if bonds: 
+                loss += bond_gw_dist
             bond_idx += num_atoms * num_atoms
         # G = grad(loss, bonds_logits, retain_graph = True)[0]
         # print ("FGW", G.shape, G.abs().mean().item())
@@ -119,8 +124,9 @@ class CrossAttUnit(nn.Module):
 
             # self.k = nn.parameter.Parameter(torch.randn(args.pc_hidden, self.cross_att_dim, device = args.device))
             # self.q = nn.parameter.Parameter(torch.randn(args.pc_hidden, self.cross_att_dim, device = args.device))
-            self.k0 = nn.Linear(self.args.pc_hidden, self.args.n_hidden).to(device = args.device)
-            self.k1 = nn.Linear(self.args.n_hidden, self.cross_att_dim).to(device = args.device)
+            if not self.args.cross_att_use_gcn2:
+                self.k0 = nn.Linear(self.args.pc_hidden, self.args.n_hidden).to(device = args.device)
+                self.k1 = nn.Linear(self.args.n_hidden, self.cross_att_dim).to(device = args.device)
             self.q0 = nn.Linear(self.args.pc_hidden, self.args.n_hidden).to(device = args.device)
             self.q1 = nn.Linear(self.args.n_hidden, self.cross_att_dim).to(device = args.device)
             self.eps = 1e-06
@@ -130,6 +136,9 @@ class CrossAttUnit(nn.Module):
             return None
         # print (yhat_embedding.shape, y_embedding.shape)
 
+        # compute the cross entropy loss for the columns not normalized
+        # works best when using few sinkhorn iterations
+        loss = torch.tensor(0., device=self.args.device)
         cross_mats = []
         for idx, (stx, lex) in enumerate(X.scope):
             y = y_embedding[stx:stx+lex]
@@ -140,18 +149,32 @@ class CrossAttUnit(nn.Module):
                 yhat = yhat_embedding[idx][:lex]
             # print(y.shape, self.k.shape, self.q.shape, yhat.shape)
             # M = 1/np.sqrt(self.cross_att_dim) * torch.matmul(torch.matmul(y, self.k), torch.matmul(self.q.T, yhat.T))
-            M = torch.matmul(self.k1(F.leaky_relu(self.k0(y))), self.q1(F.leaky_relu(self.q0(yhat))).T)
+            if self.args.cross_att_use_gcn2:
+                M = torch.matmul(y, self.q1(F.leaky_relu(self.q0(yhat))).T)
+            else:
+                M = torch.matmul(self.k1(F.leaky_relu(self.k0(y))), self.q1(F.leaky_relu(self.q0(yhat))).T)
 
             # clamp unreasonable values
             # M = M.clamp(-5, 5)
+            try:
+                if self.args.cross_att_sigmoid:
+                    M = nn.Sigmoid()(M) * 5
+            except:
+                print ("no sigmoid setting found. older model, presumably")
+                pass
 
             if self.args.cross_att_random:
                 dim = np.random.randint(2)
             else:
                 dim = 1
 
-            attn = torch.softmax(M, dim = dim) + self.eps
-            W = attn/(len(attn))
+            attn = torch.softmax(M, dim = dim)
+            # compute the entropy loss over the attention matrix
+            loss_vec = attn.sum(axis = 1 - dim) + self.eps
+            loss += torch.sum(-torch.log(loss_vec) * loss_vec)
+
+            # normalize sinkhorn a few times
+            W = (attn + self.eps)/(len(attn))
             # if idx == 0:
             #     print (W.sum(axis = 0))
             #     print (W.sum(axis = 1))
@@ -170,7 +193,8 @@ class CrossAttUnit(nn.Module):
             #     #     print (W.sum(axis = 1))
             #     #     print ()
             cross_mats.append(W)
-        return cross_mats
+             
+        return cross_mats, loss
    
 
 def compute_barycenter(pc_X, b_size, bary_pc_gain=1, num_iters=5):

@@ -70,12 +70,21 @@ def get_args():
                         help='Entropy regularization term for sinkhorn')
     parser.add_argument('-sinkhorn_max_it', type=int, default=10000,
                         help='Max num it for sinkhorn')
+    parser.add_argument('-fgw_atoms', action = 'store_false')
+    parser.add_argument('-fgw_bonds', action = 'store_false')
 
     # Cross Attention Params
     parser.add_argument('-cross_att_use', action = "store_true")
     parser.add_argument('-cross_att_dim', type = int, default = 150)
     parser.add_argument('-cross_att_random', action = 'store_true')
     parser.add_argument('-cross_att_n_sinkhorn', type = int, default = 1)
+    parser.add_argument('-cross_att_use_gcn2', action = 'store_true')
+    parser.add_argument('-cross_att_sigmoid', action = 'store_true',
+            help = 'normalize the transport plan with a sigmoid before passing'
+                    'through the attention mechanism')
+    parser.add_argument('-ot_lambda', type=float, default=-1,
+            help = 'parameter for regularizing the transport plan entropy')
+
 
     # Penalty params
     parser.add_argument('-connectivity', type=bool, default=True)

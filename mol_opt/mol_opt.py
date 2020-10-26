@@ -22,6 +22,10 @@ class MolOpt(nn.Module):
 
         # for embeddings
         self.GCN = GCN(self.args).to(device = args.device)
+        if self.args.cross_att_use_gcn2:
+            self.GCN2 = GCN(self.args).to(device = args.device)
+        else:
+            self.GCN2 = self.GCN
 
         # for the projection. ffn and transformer use this
         if self.args.model_type == "ffn" or self.args.model_type == "transformer" or self.args.model_type == "transformer-ae":

@@ -174,9 +174,10 @@ def run_func(mol_opt, mol_opt_decoder, optim, scheduler, data_loader, data_type,
         pred_pack = (yhat_labels, yhat_logits, Y.scope), Y
         # model_loss = fgw_loss(*pred_pack, tau = pen_loss.tau)
         if args.cross_att_use:
-            y_encoding = mol_opt.GCN(Y)[0]
-            cross_mats = crossatt.forward(x_embedding, y_encoding, X, args.model_type)
-            model_loss = fgw_loss(*pred_pack, tau = 1, ot_plans = cross_mats)
+            y_encoding = mol_opt.GCN2(Y)[0]
+            cross_mats, ot_loss = crossatt.forward(x_embedding, y_encoding, X, args.model_type)
+            model_loss = fgw_loss(*pred_pack, tau = 1, ot_plans = cross_mats,
+                atoms = args.fgw_atoms, bonds = args.fgw_bonds)
         else:
             model_loss = fgw_loss(*pred_pack, tau = 1)
         # compute the lambdas and losses, based on this fgw loss
@@ -188,6 +189,10 @@ def run_func(mol_opt, mol_opt_decoder, optim, scheduler, data_loader, data_type,
 
         loss = model_loss + pen_loss.conn_lambda * con_loss + \
             pen_loss.valency_lambda * val_loss + pen_loss.euler_lambda * eul_loss
+        if args.cross_att_use:
+            loss += args.ot_lambda * ot_loss
+            losses_stats_tracker.add_stat('ot_penalty', ot_loss.item(), n_data)
+
         if args.reconstruction_loss:
             recpen_loss.compute_lambdas(epoch_idx)
             xhat_encoding = recpen_loss(x_encoding)
