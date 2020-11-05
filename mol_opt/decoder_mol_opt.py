@@ -57,11 +57,14 @@ class MolOptDecoder(nn.Module):
 
             # cheating a bit here, by looking at what # of atoms should be
             if self.args.model_type == "pointwise" or self.args.model_type == "deepsets":
+                # if lex != ley:
+                #     raise RuntimeError("{}!={}, which is required for pointwise optimization".\
+                #         format(lex, ley))
+                x_narrow = x_embedding[stx:stx+lex]
                 if lex != ley:
-                    raise RuntimeError("{}!={}, which is required for pointwise optimization".\
-                        format(lex, ley))
-                x_narrow = x_embedding[stx:stx+lex].unsqueeze(0)
-                yhat_narrow = x_narrow
+                    yhat_narrow = compute_barycenter(x_narrow, ley).unsqueeze(0)
+                else:
+                    yhat_narrow = x_narrow.unsqueeze(0)
             if self.args.model_type == "slot":
                 x_narrow = x_embedding[stx:stx+lex].unsqueeze(0)
                 yhat_narrow = self.slot_att(x_narrow, num_slots = ley)

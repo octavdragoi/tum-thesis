@@ -22,10 +22,15 @@ class MolOpt(nn.Module):
 
         # for embeddings
         self.GCN = GCN(self.args).to(device = args.device)
-        if self.args.cross_att_use_gcn2:
-            self.GCN2 = GCN(self.args).to(device = args.device)
-        else:
-            self.GCN2 = self.GCN
+        try:
+            if self.args.cross_att_use_gcn2:
+                self.GCN2 = GCN(self.args).to(device = args.device)
+            else:
+                self.GCN2 = self.GCN
+        except:
+            pass
+            # self.GCN2 = self.GCN
+
 
         # for the projection. ffn and transformer use this
         if self.args.model_type == "ffn" or self.args.model_type == "transformer" or self.args.model_type == "transformer-ae":
@@ -111,7 +116,7 @@ class MolOpt(nn.Module):
             yhat_embedding = self.opt1(F.leaky_relu(self.opt0(x_embedding_view)))
             return yhat_embedding.view(-1, self.args.pc_hidden)
         elif self.args.model_type == "transformer":
-            return self.transformer(x_embedding, None)
+            return self.transformer(x_embedding, None, None, None)
         elif self.args.model_type == "transformer-ae": 
             return self.opt1(F.leaky_relu(self.opt0(x_embedding)))
         elif self.args.model_type == "slot":

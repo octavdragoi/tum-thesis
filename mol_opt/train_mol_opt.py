@@ -42,9 +42,17 @@ ft = {
 def initialize_models(args):
     molopt = MolOpt(args).to(device = args.device)
     molopt_decoder = MolOptDecoder(args).to(device = args.device)
+
+    # do some backwards compatibility stuff
+    if "cross_att_use_gcn2" not in args:
+        args.cross_att_use_gcn2 = False
+    if "cross_att_sigmoid" not in args:
+        args.cross_att_sigmoid = False
+
     try:
         crossatt = CrossAttUnit(args).to(device = args.device)
-    except AttributeError:
+    except AttributeError as e:
+        print (e)
         crossatt = None
     molopt_module_list = torch.nn.ModuleList([molopt, molopt_decoder, crossatt])
     # create your optimizer
@@ -114,6 +122,14 @@ def main(args = None, train_data_loader = None, val_data_loader = None):
         run_func(molopt, molopt_decoder, optimizer, scheduler, train_data_loader, "train", 
                 args, pen_loss, recpen_loss, crossatt, epoch)
 
+        # save your progress along the way
+        # if epoch % 20 == 0:
+        outfile = os.path.join(args.output_dir, format_name(args.init_model, epoch))
+        print ("Saving model, do not interrupt...")
+        save_checkpoint(molopt, molopt_decoder, optimizer, pen_loss, recpen_loss, crossatt, scheduler, epoch, args, outfile)
+        print ("Saved at", outfile)
+        cleanup_dir(args.output_dir, epoch)
+
         # compute the validation loss as well, at the end of the epoch?
         if not args.one_batch_train and val_data_loader is not None:
             run_func(molopt, molopt_decoder, optimizer, scheduler, val_data_loader, "val", args, 
@@ -122,13 +138,6 @@ def main(args = None, train_data_loader = None, val_data_loader = None):
         end = time.time()
         print("Epoch duration:", end - start)
 
-        # save your progress along the way
-        if epoch % 20 == 0:
-            outfile = os.path.join(args.output_dir, format_name(args.init_model, epoch))
-            print ("Saving model, do not interrupt...")
-            save_checkpoint(molopt, molopt_decoder, optimizer, pen_loss, recpen_loss, crossatt, scheduler, epoch, args, outfile)
-            print ("Saved at", outfile)
-            cleanup_dir(args.output_dir, epoch)
     
     return molopt, molopt_decoder
 
@@ -140,13 +149,14 @@ def run_func(mol_opt, mol_opt_decoder, optim, scheduler, data_loader, data_type,
     Also used for validation purposes.
     """
     is_train = data_type == 'train'
+    pairs = True
     if is_train:
-        # pairs = True
-        pairs = False
+        # pairs = False
         mol_opt.train()
         mol_opt_decoder.train()
     else:
-        pairs = False
+        # pairs = True
+        # pairs = False
         mol_opt.eval()
         mol_opt_decoder.eval()
 
@@ -225,11 +235,18 @@ def run_func(mol_opt, mol_opt_decoder, optim, scheduler, data_loader, data_type,
         # train on the first batch only
         if args.one_batch_train:
             break
+        else:
+            # free up memory
+            del X
+            del Y
+            torch.cuda.empty_cache()
 
         if idx_batch % 30 == 0:
             losses_stats_tracker.print_stats("Losses Batch {}, {}".format(idx_batch, data_type))
             if is_train:
                 pen_loss.log()
+
+        
 
     # signal that the output files are complete
     Path(os.path.join(args.output_dir, format_data_name(args.init_model, epoch_idx), "{}_{}.out".format(data_type, "complete"))).touch()

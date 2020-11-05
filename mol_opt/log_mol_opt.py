@@ -64,7 +64,12 @@ def load_checkpoint(infile, init_fc, args = None, device = 'cuda:0'):
     molopt, molopt_decoder, optimizer, penalty, recpen, crossatt, scheduler = init_fc(args)
     molopt.load_state_dict(checkpoint['molopt'])
     molopt_decoder.load_state_dict(checkpoint['molopt_decoder'])
-    optimizer.load_state_dict(checkpoint['optimizer'])
+    try:
+        optimizer.load_state_dict(checkpoint['optimizer'])
+    except e:
+        print(e)
+        print ("optimizer not loaded")
+        pass
     if scheduler is not None and checkpoint['scheduler'] is not None:
         scheduler.load_state_dict(checkpoint['scheduler'])
     else:
