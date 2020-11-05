@@ -34,7 +34,7 @@ class MolOptDecoder(nn.Module):
         if self.args.model_type == "molemb" or args.model_type == "transformer-ae":
             self.max_num_atoms = self.args.max_num_atoms
 
-        if self.args.model_type == "transformer-ae":
+        if self.args.model_type == "transformer-ae" or args.model_type == "transformer":
             self.transformer = make_model(args).to(device = args.device)
 
         # TODO: Make a ModuleDict from feature to layers
@@ -68,14 +68,14 @@ class MolOptDecoder(nn.Module):
             if self.args.model_type == "slot":
                 x_narrow = x_embedding[stx:stx+lex].unsqueeze(0)
                 yhat_narrow = self.slot_att(x_narrow, num_slots = ley)
-            elif self.args.model_type == "ffn" or self.args.model_type == "transformer":
+            elif self.args.model_type == "ffn":
                 x_narrow = x_embedding[idx*self.Nref:(idx+1)*self.Nref]
                 yhat_narrow = compute_barycenter(x_narrow, ley).unsqueeze(0)
             elif self.args.model_type == "molemb":
                 yhat_narrow = x_embedding[idx,:ley].unsqueeze(0)
-            elif self.args.model_type == "transformer-ae":
+            elif self.args.model_type == "transformer-ae"or self.args.model_type == "transformer":
                 ys = torch.zeros((1,self.args.pc_hidden),device = self.args.device)
-                for i in range(lex+1):
+                for i in range(ley+1):
                     # print (i, ys.shape, x_embedding[i].shape)
                     out = self.transformer(x_embedding[i], Variable(ys), None, None)
                     ys = torch.cat([ys, out[-1].unsqueeze(0)])

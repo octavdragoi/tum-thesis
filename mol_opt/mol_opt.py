@@ -39,9 +39,7 @@ class MolOpt(nn.Module):
             self.Nref = self.args.dim_tangent_space
 
         # for the optimizer part
-        if self.args.model_type == "transformer":
-            self.transformer = make_model(args)
-        if self.args.model_type == "transformer-ae":
+        if self.args.model_type == "transformer-ae" or self.args.model_type == "transformer":
             self.max_num_atoms = args.max_num_atoms
             self.opt0 = nn.Linear(self.args.pc_hidden, self.args.n_hidden).to(device = args.device)
             self.opt1 = nn.Linear(self.args.n_hidden, self.args.pc_hidden).to(device = args.device)
@@ -115,9 +113,7 @@ class MolOpt(nn.Module):
             x_embedding_view = x_embedding.view(-1, self.Nref * self.args.pc_hidden)
             yhat_embedding = self.opt1(F.leaky_relu(self.opt0(x_embedding_view)))
             return yhat_embedding.view(-1, self.args.pc_hidden)
-        elif self.args.model_type == "transformer":
-            return self.transformer(x_embedding, None, None, None)
-        elif self.args.model_type == "transformer-ae": 
+        elif self.args.model_type == "transformer-ae" or self.args.model_type == "transformer": 
             return self.opt1(F.leaky_relu(self.opt0(x_embedding)))
         elif self.args.model_type == "slot":
             return x_embedding
